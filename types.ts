@@ -24,4 +24,4 @@ export interface WorkoutLog {
   date: number; // timestamp
 }
 
-export type ViewState = 'HOME' | 'EXERCISES' | 'SESSION' | 'SUCCESS';
+export type ViewState = 'HOME' | 'EXERCISES' | 'SESSION' | 'SUCCESS' | 'SUMMARY';

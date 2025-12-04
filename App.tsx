@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
-import { ChevronLeft, CheckCircle2, X, Plus, Trash2, Trophy } from 'lucide-react';
+import { ChevronLeft, CheckCircle2, X, Plus, Trophy, Home, Download, Loader2 } from 'lucide-react';
+import html2canvas from 'html2canvas';
 import { BodyPart, Exercise, ViewState, SetLog } from './types';
 import { BODY_PARTS, EXERCISES } from './data';
 
@@ -382,43 +383,149 @@ const SessionView = ({
 
 
 /**
- * 4. Success View
+ * 4. Summary View (Replaces Success/Finish)
  */
-const SuccessView = ({ onComplete }: { onComplete: () => void }) => {
-  useEffect(() => {
-    const timer = setTimeout(onComplete, 1500);
-    return () => clearTimeout(timer);
-  }, [onComplete]);
+const SummaryView = ({ 
+  logs, 
+  onClose 
+}: { 
+  logs: Record<string, SetLog[]>, 
+  onClose: () => void 
+}) => {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // Helper to find exercise name from ID
+  const getExerciseName = (id: string) => {
+    const allExercises = Object.values(EXERCISES).flat();
+    return allExercises.find(ex => ex.id === id)?.name || id;
+  };
+
+  const hasLogs = Object.keys(logs).length > 0;
+
+  const handleSaveImage = async () => {
+    if (!contentRef.current) return;
+    
+    try {
+      setIsSaving(true);
+      // Create canvas from the element
+      const canvas = await html2canvas(contentRef.current, {
+        scale: 2, // Improve quality for retina displays
+        backgroundColor: '#ffffff', // Ensure white background
+        useCORS: true,
+      });
+
+      // Convert to image URL
+      const image = canvas.toDataURL("image/png");
+
+      // Trigger download
+      const link = document.createElement('a');
+      link.href = image;
+      link.download = `BubbleLift_Workout_${new Date().toISOString().slice(0,10)}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error("Failed to save image:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
-    <div className="flex flex-col h-full items-center justify-center bg-white/95 backdrop-blur-xl z-50">
-      <motion.div
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        transition={{ type: "spring", stiffness: 200, damping: 15 }}
-        className="w-24 h-24 rounded-full bg-green-50 flex items-center justify-center text-green-500 mb-6 shadow-sm"
-      >
-        <CheckCircle2 size={48} strokeWidth={2.5} />
-      </motion.div>
-      <motion.h2 
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="text-2xl font-bold text-slate-800"
-      >
-        训练完成
-      </motion.h2>
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="text-slate-400 mt-2"
-      >
-        数据已保存
-      </motion.p>
+    <div className="flex flex-col h-full bg-slate-50">
+      <Header 
+        title="今日训练小结" 
+        action={
+          <button 
+            onClick={onClose}
+            className="p-2 rounded-full hover:bg-black/5 active:bg-black/10 transition-colors"
+          >
+            <X className="w-6 h-6 text-slate-800" />
+          </button>
+        }
+      />
+
+      <div className="flex-1 overflow-y-auto px-6 py-6 no-scrollbar">
+        {/* Paper-like container to be captured */}
+        <div 
+          ref={contentRef}
+          className="bg-white rounded-3xl shadow-sm border border-slate-200/60 min-h-[500px] p-8 relative overflow-hidden"
+        >
+          {/* Decorative Lines */}
+          <div className="absolute top-0 left-8 bottom-0 w-[1px] bg-red-100/50"></div>
+          
+          <div className="flex justify-between items-end border-b border-slate-100 pb-4 mb-8 pl-6">
+            <h2 className="text-2xl font-bold text-slate-800">
+              训练日志
+            </h2>
+            <span className="text-xs text-slate-400 font-mono mb-1">
+              {new Date().toLocaleDateString()}
+            </span>
+          </div>
+          
+          {!hasLogs ? (
+             <p className="text-slate-400 pl-6 italic">暂无训练记录</p>
+          ) : (
+            <div className="space-y-8 pl-6">
+              {Object.entries(logs).map(([exId, sets]) => (
+                <div key={exId} className="space-y-3">
+                  <h3 className="text-xl font-bold text-slate-700">
+                    {getExerciseName(exId)}
+                  </h3>
+                  <div className="flex flex-wrap gap-3">
+                    {sets.map((set, idx) => (
+                      <div 
+                        key={idx} 
+                        className="px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-100 text-slate-600 font-medium font-mono text-sm shadow-sm"
+                      >
+                         {set.weight}kg <span className="text-slate-300 mx-1">×</span> {set.reps}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Signature/Stamp effect */}
+          <div className="mt-12 flex flex-col items-end opacity-20 rotate-[-12deg] pointer-events-none pr-4 pb-4">
+             <div className="w-24 h-24 rounded-full border-4 border-slate-900 flex items-center justify-center mb-2">
+                <span className="text-slate-900 font-black text-lg uppercase tracking-widest">DONE</span>
+             </div>
+             <div className="text-xs font-bold uppercase tracking-widest text-slate-900">BubbleLift</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-6 pb-10 bg-slate-50 flex gap-4">
+         {/* Save Image Button */}
+         <button
+          onClick={handleSaveImage}
+          disabled={isSaving}
+          className="flex-1 py-4 bg-white text-slate-700 border border-slate-200 text-lg font-semibold rounded-2xl shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+        >
+          {isSaving ? (
+            <Loader2 className="animate-spin" size={20} />
+          ) : (
+            <Download size={20} />
+          )}
+          保存长图
+        </button>
+
+        {/* Home Button */}
+        <button
+          onClick={onClose}
+          className="flex-1 py-4 bg-slate-800 text-white text-lg font-semibold rounded-2xl shadow-lg shadow-slate-200 active:scale-[0.98] transition-transform flex items-center justify-center gap-2"
+        >
+          <Home size={20} />
+          回到首页
+        </button>
+      </div>
     </div>
   );
-}
+};
+
 
 // --- Main App Logic ---
 
@@ -426,39 +533,11 @@ const App = () => {
   const [view, setView] = useState<ViewState>('HOME');
   const [selectedPart, setSelectedPart] = useState<BodyPart | null>(null);
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
+  
+  // Ephemeral State (No LocalStorage)
   const [history, setHistory] = useState<Record<string, number>>({});
-  // Log Drafts: Persist sets for exercises until explicitly cleared
   const [sessionLogs, setSessionLogs] = useState<Record<string, SetLog[]>>({});
-  // Completed Exercises for the day
   const [completedExercises, setCompletedExercises] = useState<string[]>([]);
-
-  // Load data from local storage
-  useEffect(() => {
-    const savedHistory = localStorage.getItem('bubblelift_history');
-    if (savedHistory) {
-      try { setHistory(JSON.parse(savedHistory)); } catch (e) {}
-    }
-    const savedLogs = localStorage.getItem('bubblelift_logs');
-    if (savedLogs) {
-      try { setSessionLogs(JSON.parse(savedLogs)); } catch (e) {}
-    }
-    const savedCompleted = localStorage.getItem('bubblelift_completed');
-    if (savedCompleted) {
-      try { setCompletedExercises(JSON.parse(savedCompleted)); } catch (e) {}
-    }
-  }, []);
-
-  // Save logs to storage
-  useEffect(() => {
-    if (Object.keys(sessionLogs).length > 0) {
-      localStorage.setItem('bubblelift_logs', JSON.stringify(sessionLogs));
-    }
-  }, [sessionLogs]);
-
-  // Save completed exercises to storage
-  useEffect(() => {
-    localStorage.setItem('bubblelift_completed', JSON.stringify(completedExercises));
-  }, [completedExercises]);
 
   const handleSelectPart = (part: BodyPart) => {
     setSelectedPart(part);
@@ -488,35 +567,33 @@ const App = () => {
       const lastWeightUsed = currentSets[currentSets.length - 1].weight;
       const newHistory = { ...history, [selectedExercise.id]: lastWeightUsed };
       setHistory(newHistory);
-      localStorage.setItem('bubblelift_history', JSON.stringify(newHistory));
       
       // Mark as completed
       setCompletedExercises(prev => {
         if (prev.includes(selectedExercise.id)) return prev;
         return [...prev, selectedExercise.id];
       });
-
-      setView('SUCCESS');
-    } else {
-      setView('EXERCISES');
     }
-  };
-
-  const handleSuccessComplete = () => {
-    // Navigate back to the Exercise List for the current body part
-    setView('EXERCISES');
-    // We do NOT clear sessionLogs here as requested
+    
+    // Direct return to exercise list (No animation)
     setSelectedExercise(null);
+    setView('EXERCISES');
   };
 
   const handleFinishWorkout = () => {
-     // User is done with the entire workout for the body part
-     // Reset completed exercises for the day
+     // Show Summary
+     setView('SUMMARY');
+  };
+
+  const handleCloseSummary = () => {
+     // Reset EVERYTHING
+     setSessionLogs({});
      setCompletedExercises([]);
+     setHistory({});
      setSelectedPart(null);
      setSelectedExercise(null);
      setView('HOME');
-  };
+  }
 
   const getLastWeight = (exerciseId: string) => {
     return history[exerciseId] || 0;
@@ -592,16 +669,16 @@ const App = () => {
           </motion.div>
         )}
 
-        {view === 'SUCCESS' && (
+        {view === 'SUMMARY' && (
           <motion.div
-            key="success"
+            key="summary"
             variants={variants}
             initial="enter"
             animate="center"
             exit="exit"
             className="h-full w-full absolute top-0 left-0 z-50"
           >
-            <SuccessView onComplete={handleSuccessComplete} />
+            <SummaryView logs={sessionLogs} onClose={handleCloseSummary} />
           </motion.div>
         )}
       </AnimatePresence>
