@@ -1,0 +1,5 @@
+{
+  "name": "BubbleLift",
+  "description": "A minimalist, gesture-based workout tracker featuring floating bubble UI and smart weight suggestions.",
+  "requestFramePermissions": []
+}
