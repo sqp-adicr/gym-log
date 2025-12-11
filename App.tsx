@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
-import { ChevronLeft, CheckCircle2, X, Plus, Trophy, Home, Download, Loader2, CloudUpload, Check, AlertCircle, PlusCircle, Search, ArrowRight, Sparkles, Send, Info, BarChart2, Terminal, Play, Copy, Flame, Minus, Circle } from 'lucide-react';
+import { ChevronLeft, CheckCircle2, X, Plus, Trophy, Home, Download, Loader2, CloudUpload, Check, AlertCircle, PlusCircle, Search, ArrowRight, Sparkles, Send, Info, BarChart2, Terminal, Play, Copy, Flame, Minus, Circle, Activity } from 'lucide-react';
 import { BodyPart, Exercise, ViewState, SetLog, AIWorkoutPlan, AIPlanDetails } from './types';
 import { BODY_PARTS, EXERCISES, SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, DEEPSEEK_API_KEY } from './data';
 import { supabase } from './supabaseClient';
@@ -375,12 +375,14 @@ const SurveyModal = ({
     doms: string;
     stress: string;
     domsPart?: string;
+    otherActivity: string;
   }>({
     sleep: '好',
     diet: '正常',
     doms: '无感',
     stress: '放松',
-    domsPart: ''
+    domsPart: '',
+    otherActivity: '无'
   });
 
   const handleOptionChange = (key: keyof typeof formData, value: string) => {
@@ -427,14 +429,14 @@ const SurveyModal = ({
         initial={{ scale: 0.95, opacity: 0, y: 20 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.95, opacity: 0, y: 20 }}
-        className="relative bg-white w-full max-w-md rounded-[2rem] overflow-hidden shadow-2xl"
+        className="relative bg-white w-full max-w-md rounded-[2rem] overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
       >
-        <div className="bg-slate-50 border-b border-slate-100 p-6">
+        <div className="bg-slate-50 border-b border-slate-100 p-6 flex-shrink-0">
           <h3 className="text-xl font-bold text-slate-800 text-center">今日状态检查</h3>
           <p className="text-slate-400 text-sm text-center mt-1">为 {bodyPart.name}部训练调整强度</p>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-5 overflow-y-auto no-scrollbar flex-1">
           <div className="space-y-2">
             <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
               <span className="w-1 h-4 rounded-full bg-indigo-500"/> 睡眠质量
@@ -467,7 +469,7 @@ const SurveyModal = ({
               {renderOption('doms', '无感', '无感')}
             </div>
             
-            {/* New Conditional Body Part Selection for DOMS */}
+            {/* Conditional Body Part Selection for DOMS */}
             {formData.doms !== '无感' && (
                 <motion.div 
                   initial={{ opacity: 0, height: 0 }}
@@ -507,7 +509,22 @@ const SurveyModal = ({
             </div>
           </div>
 
-          <div className="pt-4">
+           <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+              <span className="w-1 h-4 rounded-full bg-cyan-500"/> 其他运动计划
+            </label>
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                {renderOption('otherActivity', '无 (None)', '无')}
+              </div>
+              <div className="flex gap-2">
+                {renderOption('otherActivity', '健身前打了羽毛球', '健身前打了羽毛球')}
+                {renderOption('otherActivity', '健身后要打羽毛球', '健身后要打羽毛球')}
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-4 pb-2">
              <button 
                onClick={handleConfirm}
                disabled={loading}
@@ -1380,7 +1397,7 @@ const App = () => {
         // Skip warmup exercises for saving if they have no numeric logs (which they won't in read-only mode)
         if (exerciseDef?.warmupDetails) continue;
 
-        const validLogs = exerciseLogs.filter(l => l.weight > 0 || l.reps > 0);
+        const validLogs = (exerciseLogs as SetLog[]).filter(l => l.weight > 0 || l.reps > 0);
         
         if (validLogs.length > 0) {
             const setsData = validLogs.map((log, index) => ({
