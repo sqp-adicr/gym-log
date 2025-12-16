@@ -1,11 +1,10 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
-import { ChevronLeft, CheckCircle2, X, Plus, Trophy, Home, Download, Loader2, CloudUpload, Check, AlertCircle, PlusCircle, Search, ArrowRight, Sparkles, Send, Info, BarChart2, Terminal, Play, Copy, Flame, Minus, Circle, Activity, Trash2 } from 'lucide-react';
+import { ChevronLeft, CheckCircle2, X, Plus, Trophy, Home, Download, Loader2, CloudUpload, Check, AlertCircle, PlusCircle, Search, ArrowRight, Sparkles, Send, Info, BarChart2, Terminal, Play, Copy, Flame, Minus, Circle, Activity, Trash2, Edit3 } from 'lucide-react';
 import { BodyPart, Exercise, ViewState, SetLog, AIWorkoutPlan, AIPlanDetails } from './types';
 import { BODY_PARTS, EXERCISES, SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, DEEPSEEK_API_KEY } from './data';
 import { supabase } from './supabaseClient';
-import OpenAI from 'openai';
 
 // --- Utility Components ---
 
@@ -243,6 +242,76 @@ const RpePicker = ({
                 </button>
             ))}
         </div>
+      </motion.div>
+    </div>
+  );
+};
+
+const NotePicker = ({
+  initialNote,
+  onConfirm,
+  onClose
+}: {
+  initialNote?: string;
+  onConfirm: (val: string) => void;
+  onClose: () => void;
+}) => {
+  const [note, setNote] = useState(initialNote || '');
+  const presets = ['热身', '控制', '主力', '慢放'];
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center p-0 sm:p-4">
+      <motion.div 
+        initial={{ opacity: 0 }} 
+        animate={{ opacity: 1 }} 
+        exit={{ opacity: 0 }}
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+        className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2rem] p-6 relative z-10 shadow-2xl max-h-[80vh] flex flex-col"
+      >
+        <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-bold text-slate-800">选择备注</h3>
+            <button onClick={onClose} className="p-2 bg-slate-100 rounded-full"><X size={20}/></button>
+        </div>
+
+        <div className="flex flex-wrap gap-3 mb-6">
+            {presets.map(p => (
+                <button
+                    key={p}
+                    onClick={() => setNote(p)}
+                    className={`px-4 py-3 rounded-xl font-bold text-sm transition-all border ${
+                        note === p 
+                        ? 'bg-slate-800 text-white border-slate-800' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                >
+                    {p}
+                </button>
+            ))}
+        </div>
+
+        <div className="mb-6">
+             <input
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="自定义备注..."
+                className="w-full px-4 py-4 rounded-xl bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-medium"
+             />
+        </div>
+
+        <button 
+          onClick={() => { onConfirm(note); onClose(); }}
+          className="w-full py-4 bg-slate-800 text-white font-bold rounded-2xl text-lg active:scale-95 transition-transform"
+        >
+            确定
+        </button>
       </motion.div>
     </div>
   );
@@ -514,13 +583,9 @@ const SurveyModal = ({
               <span className="w-1 h-4 rounded-full bg-cyan-500"/> 其他运动计划
             </label>
             <div className="flex flex-col gap-2">
-              <div className="flex gap-2">
-                {renderOption('otherActivity', '无 (None)', '无')}
-              </div>
-              <div className="flex gap-2">
-                {renderOption('otherActivity', '健身前打了羽毛球', '健身前打了羽毛球')}
-                {renderOption('otherActivity', '健身后要打羽毛球', '健身后要打羽毛球')}
-              </div>
+              {renderOption('otherActivity', '无 (None)', '无')}
+              {renderOption('otherActivity', '健身前打了羽毛球', '健身前打了羽毛球')}
+              {renderOption('otherActivity', '健身后要打羽毛球', '健身后要打羽毛球')}
             </div>
           </div>
 
@@ -1001,36 +1066,48 @@ const AddExerciseModal = ({
 const SetItem: React.FC<{ 
     item: SetLog, 
     onDelete: () => void, 
-    onOpenPicker: (type: 'weight' | 'reps' | 'rpe', id: string, val: number) => void
+    onOpenPicker: (type: 'weight' | 'reps' | 'rpe' | 'note', id: string, val: number | string) => void
 }> = ({ item, onDelete, onOpenPicker }) => {
     return (
         <Reorder.Item value={item} id={item.id} className="flex items-center gap-2 mb-3 cursor-grab active:cursor-grabbing">
             <div className="w-6 flex justify-center text-slate-300">
                 <div className="w-1.5 h-1.5 rounded-full bg-slate-300" />
             </div>
-            <div className="flex-1 flex gap-2">
-                <div className="flex-[1.2] relative">
+            <div className="flex-1 flex gap-2 overflow-hidden">
+                <div className="flex-[1.2] relative min-w-0">
                     <button
                         onClick={() => onOpenPicker('weight', item.id, item.weight)}
-                        className="w-full bg-slate-100 rounded-xl px-2 py-3 text-center font-bold text-slate-700 hover:bg-slate-200 active:bg-slate-300 transition-colors"
+                        className="w-full bg-slate-100 rounded-xl px-2 py-3 text-center font-bold text-slate-700 hover:bg-slate-200 active:bg-slate-300 transition-colors truncate"
                     >
                         {item.weight || 0}
                     </button>
                     <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-medium pointer-events-none">KG</span>
                 </div>
-                <div className="flex-1 relative">
+                <div className="flex-1 relative min-w-0">
                     <button
                         onClick={() => onOpenPicker('reps', item.id, item.reps)}
-                        className="w-full bg-slate-100 rounded-xl px-2 py-3 text-center font-bold text-slate-700 hover:bg-slate-200 active:bg-slate-300 transition-colors"
+                        className="w-full bg-slate-100 rounded-xl px-2 py-3 text-center font-bold text-slate-700 hover:bg-slate-200 active:bg-slate-300 transition-colors truncate"
                     >
                         {item.reps || 0}
                     </button>
                     <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-medium pointer-events-none">次</span>
                 </div>
-                <div className="flex-1 relative">
+                <div className="flex-[1.2] relative min-w-0">
+                    <button
+                        onClick={() => onOpenPicker('note', item.id, item.note || '')}
+                        className={`w-full rounded-xl px-2 py-3 text-center font-bold text-xs truncate transition-colors ${
+                            item.note 
+                            ? 'bg-blue-100 text-blue-600' 
+                            : 'bg-slate-50 text-slate-300'
+                        }`}
+                    >
+                        {item.note || '备注'}
+                    </button>
+                </div>
+                <div className="flex-1 relative min-w-0">
                     <button
                         onClick={() => onOpenPicker('rpe', item.id, item.rpe || 0)}
-                        className="w-full bg-slate-100 rounded-xl px-2 py-3 text-center font-bold text-slate-700 hover:bg-slate-200 active:bg-slate-300 transition-colors"
+                        className="w-full bg-slate-100 rounded-xl px-2 py-3 text-center font-bold text-slate-700 hover:bg-slate-200 active:bg-slate-300 transition-colors truncate"
                     >
                         {item.rpe || '-'}
                     </button>
@@ -1039,12 +1116,71 @@ const SetItem: React.FC<{
             </div>
             <button
                 onClick={onDelete}
-                className="w-10 h-10 flex items-center justify-center text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
+                className="w-10 h-10 flex items-center justify-center text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all flex-shrink-0"
             >
                 <X size={18} />
             </button>
         </Reorder.Item>
     );
+};
+
+// --- Fallback Generator for Offline Mode ---
+const generateFallbackPlan = (part: BodyPart): { exercises: Exercise[], logs: Record<string, SetLog[]>, details: AIPlanDetails } => {
+    // Pick 3-5 random exercises for the selected body part from local library
+    const availableExercises = EXERCISES[part.id] || [];
+    const count = Math.min(availableExercises.length, 4);
+    // Shuffle and pick
+    const shuffled = [...availableExercises].sort(() => 0.5 - Math.random());
+    const selected = shuffled.slice(0, count);
+
+    const exercises: Exercise[] = [];
+    const logs: Record<string, SetLog[]> = {};
+
+    // 1. Add a generic warmup
+    exercises.push({
+        id: 'fallback_warmup',
+        name: '热身环节',
+        bodyPartId: part.id,
+        warmupDetails: [
+            { action: '动态拉伸', reps: '30秒', note: '激活' },
+            { action: '小重量预热', reps: '15次', note: '轻重量' }
+        ]
+    });
+
+    // 2. Add selected exercises
+    selected.forEach((ex, idx) => {
+        const exId = `fallback_ex_${idx}`;
+        exercises.push({
+            id: exId,
+            name: ex.name,
+            bodyPartId: part.id,
+            suggestion: {
+                sets: "4组",
+                reps: "8-12次",
+                weight: "适中",
+                reasoning: "离线模式默认计划"
+            }
+        });
+
+        // Add 4 default sets
+        logs[exId] = Array(4).fill(0).map((_, i) => ({
+            id: `fb_${exId}_${i}`,
+            weight: 0,
+            reps: 0,
+            rpe: 0
+        }));
+    });
+
+    return {
+        exercises,
+        logs,
+        details: {
+            summary: "⚠️ 当前由于网络或API限制无法连接AI。已为您生成本地基础训练模版。",
+            adjustments: "请根据自身状态手动调整重量。",
+            feedbackRequired: [],
+            rawContent: "Local Fallback Mode"
+        }
+    };
 };
 
 // --- Main App Component ---
@@ -1076,9 +1212,9 @@ const App = () => {
   
   const [pickerState, setPickerState] = useState<{
       isOpen: boolean;
-      type: 'weight' | 'reps' | 'rpe';
+      type: 'weight' | 'reps' | 'rpe' | 'note';
       setId: string;
-      value: number;
+      value: number | string;
   } | null>(null);
 
   // Load logs for the selected exercise when entering SESSION view
@@ -1186,26 +1322,42 @@ const App = () => {
       addLog("Target Logs: " + JSON.stringify(targetLogs, null, 2).substring(0, 200) + (JSON.stringify(targetLogs).length > 200 ? "..." : ""));
       addLog("State Survey: " + JSON.stringify(surveyData, null, 2));
 
-      // Call DeepSeek API via OpenAI SDK
-      addLog("📡 正在请求 DeepSeek-V3 API...");
-      const openai = new OpenAI({
-        apiKey: DEEPSEEK_API_KEY,
-        baseURL: "https://api.deepseek.com", 
-        dangerouslyAllowBrowser: true 
-      });
-
-      const completion = await openai.chat.completions.create({
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt }
-        ],
-        model: "deepseek-reasoner", 
-        stream: false
-      });
-
-      const content = completion.choices[0].message.content;
+      // Call DeepSeek API via Fetch (more robust for CORS)
+      addLog("📡 正在请求 DeepSeek-V3 API (Fetch)...");
       
-      if (!content) throw new Error("No content received from API");
+      let content = "";
+
+      try {
+        const response = await fetch("https://api.deepseek.com/chat/completions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${DEEPSEEK_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: "deepseek-reasoner",
+                messages: [
+                    { role: "system", content: SYSTEM_PROMPT },
+                    { role: "user", content: userPrompt }
+                ],
+                stream: false
+            })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`API Request Failed: ${response.status} ${response.statusText} - ${errText}`);
+        }
+
+        const data = await response.json();
+        content = data.choices[0].message.content || "";
+        
+        if (!content) throw new Error("No content received from API");
+        
+      } catch (apiErr: any) {
+        // If API fails (likely CORS), throw to outer catch to trigger fallback
+        throw new Error(`API Connection Failed: ${apiErr.message}`);
+      }
 
       addLog("📥 收到 LLM 原始响应:");
       addLog(content.substring(0, 300) + "... (截取部分展示)");
@@ -1324,11 +1476,15 @@ const App = () => {
                       const rpeStr = String(row['RPE'] || '0');
                       const rpe = parseFloat(rpeStr.replace(/[^0-9.]/g, '')) || 0;
                       
+                      // Map '节奏' (Rhythm) from AI to 'note' (备注)
+                      const note = row['节奏'] || row['备注'] || ''; 
+
                       return {
                           id: `auto_${exId}_${i}`,
                           weight: weight,
                           reps: reps,
-                          rpe: rpe
+                          rpe: rpe,
+                          note: note
                       };
                   });
                   initialSessionLogs[exId] = logsForThisExercise;
@@ -1361,9 +1517,27 @@ const App = () => {
 
     } catch (error: any) {
         console.error("AI Generation Error", error);
-        addLog(`❌ 生成失败: ${error.message}`);
-        // Keep logs visible if failed so user can debug
-        await new Promise(r => setTimeout(r, 3000)); 
+        addLog(`❌ API 错误: ${error.message}`);
+        addLog("⚠️ 正在尝试使用本地备用计划...");
+        
+        await new Promise(r => setTimeout(r, 1500));
+        
+        // --- FALLBACK LOGIC ---
+        try {
+            const fallback = generateFallbackPlan(surveyBodyPart);
+            setCurrentExercises(fallback.exercises);
+            setSessionLogs(fallback.logs);
+            setAIPlanDetails(fallback.details);
+            
+            addLog("✅ 本地计划生成成功!");
+            await new Promise(r => setTimeout(r, 1000));
+            
+            setSelectedBodyPart(surveyBodyPart);
+            setShowSurvey(false);
+            setView('EXERCISES');
+        } catch (fbError) {
+             addLog("❌ 本地生成也失败了。请刷新页面。");
+        }
     } finally {
         setIsGenerating(false);
     }
@@ -1418,7 +1592,8 @@ const App = () => {
                 set: index + 1,
                 reps: log.reps,
                 weight_kg: log.weight,
-                rpe: log.rpe // Include RPE in the saved data
+                rpe: log.rpe, // Include RPE in the saved data
+                note: log.note // Include note
             }));
 
             recordsToInsert.push({
@@ -1538,10 +1713,7 @@ const App = () => {
              />
              
              {selectedExercise.warmupDetails ? (
-                 // --- WARMUP READ-ONLY VIEW ---
                  <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                     {/* Info box removed as requested */}
-                     {/* "Four Warmup Actions" text removed as requested */}
                      {selectedExercise.warmupDetails.map((item, index) => (
                          <div key={index} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between">
                              <div>
@@ -1553,14 +1725,9 @@ const App = () => {
                              </div>
                          </div>
                      ))}
-                     
-                     {/* Finish button removed as requested */}
                  </div>
              ) : (
-                // --- STANDARD EXERCISE VIEW ---
-                <>
-                 {/* Suggestion box removed as requested */}
-
+                 <>
                  <div className="flex-1 overflow-y-auto p-4">
                     <Reorder.Group axis="y" values={logs} onReorder={setLogs} className="space-y-4">
                     {logs.map((log) => (
@@ -1653,7 +1820,7 @@ const App = () => {
         
         {pickerState && pickerState.isOpen && pickerState.type === 'weight' && (
            <WeightPicker
-             initialWeight={pickerState.value}
+             initialWeight={pickerState.value as number}
              onClose={() => setPickerState(null)}
              onConfirm={(newVal) => {
                  setLogs(prev => prev.map(l => l.id === pickerState.setId ? { ...l, weight: newVal } : l));
@@ -1663,7 +1830,7 @@ const App = () => {
 
         {pickerState && pickerState.isOpen && pickerState.type === 'reps' && (
            <RepsPicker
-             initialReps={pickerState.value}
+             initialReps={pickerState.value as number}
              onClose={() => setPickerState(null)}
              onConfirm={(newVal) => {
                  setLogs(prev => prev.map(l => l.id === pickerState.setId ? { ...l, reps: newVal } : l));
@@ -1673,10 +1840,20 @@ const App = () => {
 
         {pickerState && pickerState.isOpen && pickerState.type === 'rpe' && (
            <RpePicker
-             initialRpe={pickerState.value}
+             initialRpe={pickerState.value as number}
              onClose={() => setPickerState(null)}
              onConfirm={(newVal) => {
                  setLogs(prev => prev.map(l => l.id === pickerState.setId ? { ...l, rpe: newVal } : l));
+             }}
+           />
+        )}
+
+        {pickerState && pickerState.isOpen && pickerState.type === 'note' && (
+           <NotePicker
+             initialNote={pickerState.value as string}
+             onClose={() => setPickerState(null)}
+             onConfirm={(newVal) => {
+                 setLogs(prev => prev.map(l => l.id === pickerState.setId ? { ...l, note: newVal } : l));
              }}
            />
         )}

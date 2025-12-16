@@ -30,6 +30,7 @@ export interface SetLog {
   weight: number;
   reps: number;
   rpe?: number;
+  note?: string;
 }
 
 export interface WorkoutLog {
