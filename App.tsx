@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
-import { ChevronLeft, CheckCircle2, X, Plus, Trophy, Home, Download, Loader2, CloudUpload, Check, AlertCircle, PlusCircle, Search, ArrowRight, Sparkles, Send, Info, BarChart2, Terminal, Play, Copy, Flame, Minus, Circle, Activity } from 'lucide-react';
+import { ChevronLeft, CheckCircle2, X, Plus, Trophy, Home, Download, Loader2, CloudUpload, Check, AlertCircle, PlusCircle, Search, ArrowRight, Sparkles, Send, Info, BarChart2, Terminal, Play, Copy, Flame, Minus, Circle, Activity, Trash2 } from 'lucide-react';
 import { BodyPart, Exercise, ViewState, SetLog, AIWorkoutPlan, AIPlanDetails } from './types';
 import { BODY_PARTS, EXERCISES, SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, DEEPSEEK_API_KEY } from './data';
 import { supabase } from './supabaseClient';
@@ -636,7 +636,8 @@ const ExerciseListView = ({
   completedIds,
   planDetails,
   onShowDetails,
-  isFinishing
+  isFinishing,
+  onDelete
 }: { 
   bodyPart: BodyPart; 
   exercises: Exercise[];
@@ -648,6 +649,7 @@ const ExerciseListView = ({
   planDetails?: AIPlanDetails;
   onShowDetails?: () => void;
   isFinishing: boolean;
+  onDelete: (id: string) => void;
 }) => {
   return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -681,16 +683,17 @@ const ExerciseListView = ({
               const isWarmup = !!ex.warmupDetails;
 
               return (
-                <motion.button
+                <motion.div
                   key={ex.id}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.05 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => onSelect(ex)}
-                  className={`w-full bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group relative overflow-hidden`}
+                  className={`w-full bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group relative overflow-hidden`}
                 >
-                  <div className="flex items-center gap-4 relative z-10 w-full">
+                  <button
+                    onClick={() => onSelect(ex)}
+                    className="flex-1 p-5 flex items-center gap-4 text-left active:bg-slate-50 transition-colors"
+                  >
                     {/* Consistent Checkmark for both Warmup and Standard Exercises */}
                     <CheckCircle2 
                       size={24} 
@@ -705,12 +708,23 @@ const ExerciseListView = ({
                         </span>
                       </div>
                     </div>
-                  </div>
+                  </button>
                   
-                  <div className="ml-2 w-8 h-8 rounded-full flex items-center justify-center text-slate-300 group-hover:text-blue-500 transition-colors">
-                     <ChevronLeft className="w-5 h-5 rotate-180" />
+                  <div className="flex items-center gap-1 pr-4">
+                     <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onDelete(ex.id);
+                        }}
+                        className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors z-20"
+                     >
+                        <Trash2 size={18} />
+                     </button>
+                     <div className="w-8 h-8 rounded-full flex items-center justify-center text-slate-300 group-hover:text-blue-500 transition-colors pointer-events-none">
+                        <ChevronLeft className="w-5 h-5 rotate-180" />
+                     </div>
                   </div>
-                </motion.button>
+                </motion.div>
               );
             })
           )}
@@ -1445,6 +1459,19 @@ const App = () => {
     }
   };
 
+  const handleDeleteExercise = (id: string) => {
+    if (window.confirm("确定要移除这个动作吗？")) {
+        setCurrentExercises(prev => prev.filter(e => e.id !== id));
+        // Remove associated logs if they exist
+        setSessionLogs(prev => {
+            const newLogs = { ...prev };
+            delete newLogs[id];
+            return newLogs;
+        });
+        setCompletedExercises(prev => prev.filter(eid => eid !== id));
+    }
+  };
+
   return (
     <div className="h-screen w-full bg-slate-50 relative overflow-hidden text-slate-800 font-sans selection:bg-blue-100">
       <AnimatePresence mode="wait">
@@ -1485,6 +1512,7 @@ const App = () => {
               planDetails={aiPlanDetails || undefined}
               onShowDetails={() => setShowPlanDetails(true)}
               isFinishing={isFinishing}
+              onDelete={handleDeleteExercise}
             />
           </motion.div>
         )}
@@ -1497,7 +1525,17 @@ const App = () => {
              animate={{ opacity: 1, y: 0 }}
              exit={{ opacity: 0, y: 50 }}
            >
-             <Header title={selectedExercise.name} showBack onBack={() => setView('EXERCISES')} />
+             <Header 
+               title={selectedExercise.name} 
+               showBack 
+               onBack={() => {
+                 setSessionLogs(prev => ({
+                   ...prev,
+                   [selectedExercise.id]: logs
+                 }));
+                 setView('EXERCISES');
+               }} 
+             />
              
              {selectedExercise.warmupDetails ? (
                  // --- WARMUP READ-ONLY VIEW ---
