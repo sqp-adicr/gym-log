@@ -130,10 +130,9 @@ const App = () => {
       addLog(`[横向同步] 已同步过去 7 天训练表现: ${otherLogsSummary || '暂无其他部位数据'}。`);
 
       addLog("正在评估周期状态并生成动态训练计划...");
-      addLog("提示：AI 正在深入思考中，由于计算量较大请耐心等待...");
       setGenProgress(65);
       
-      // Removed auto-retry logic as requested. Reverting to single long-waiting request.
+      // 使用 gemini-3-pro-preview 处理复杂任务，移除自动重试，确保请求过程简单直接
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
@@ -148,8 +147,8 @@ const App = () => {
       });
 
       setGenProgress(90);
-      const content = response?.text;
-      if (!content) throw new Error("AI 响应异常或为空。");
+      const content = response.text; // 直接访问 .text 属性
+      if (!content) throw new Error("AI 响应异常。");
 
       let parsedRoot: any;
       const match = content.match(/\{[\s\S]*\}/);
@@ -196,8 +195,8 @@ const App = () => {
           throw new Error("解析数据格式失败。");
       }
     } catch (error: any) {
-        console.error("Plan generation error:", error);
-        addLog(`[错误] ${error.message || '网络连接异常'}`);
+        console.error("Generate error:", error);
+        addLog(`[错误] ${error.message || '网络或数据同步异常'}`);
         setGenError(true);
     }
   };
@@ -296,7 +295,9 @@ const App = () => {
 
 // --- Picker Components ---
 const PickerManager = ({ state, onClose, onUpdate }: any) => {
-  const [val, setVal] = useState(state.value);
+  // 核心改动：如果是备注类型且当前值为空，默认设定为“主力组”
+  const initialValue = state.value || (state.type === 'note' ? '主力组' : '');
+  const [val, setVal] = useState(initialValue);
   const adjust = (amt: number) => setVal((p: any) => Math.max(0, Math.round((Number(p) + amt) * 10) / 10));
 
   return (
@@ -342,6 +343,7 @@ const PickerManager = ({ state, onClose, onUpdate }: any) => {
                           </button>
                         ))}
                     </div>
+                    {/* 移除 autoFocus 以防止键盘自动弹出，仅点击输入框时弹出 */}
                     <input 
                       value={val} 
                       onChange={e => setVal(e.target.value)} 
