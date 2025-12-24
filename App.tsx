@@ -130,38 +130,22 @@ const App = () => {
       addLog(`[横向同步] 已同步过去 7 天训练表现: ${otherLogsSummary || '暂无其他部位数据'}。`);
 
       addLog("正在评估周期状态并生成动态训练计划...");
+      addLog("提示：AI 正在深入思考中，由于计算量较大请耐心等待...");
       setGenProgress(65);
       
-      // Mandatory: Using process.env.API_KEY as per system guidelines and ensuring usage of gemini-3-pro-preview
-      let response;
-      let attempts = 0;
-      const maxAttempts = 3;
-
-      while (attempts < maxAttempts) {
-        try {
-          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-          response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: JSON.stringify({
-              recent_target_logs: targetLogs || [],
-              recent_other_logs: otherLogs || [],
-              state_survey: surveyData,
-              training_timestamp: new Date().toISOString(),
-              target_part: surveyBodyPart.name
-            }),
-            config: { systemInstruction: SYSTEM_PROMPT, temperature: 0.2 }
-          });
-          // If successful, break out of the retry loop
-          break;
-        } catch (err: any) {
-          attempts++;
-          if (attempts >= maxAttempts) throw err; // Final attempt failed, throw to main catch block
-          
-          const delay = attempts * 1500; // Exponential backoff
-          addLog(`[网络重试] 手机连接不稳定，正在进行第 ${attempts} 次自动重试...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
+      // Removed auto-retry logic as requested. Reverting to single long-waiting request.
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: JSON.stringify({
+          recent_target_logs: targetLogs || [],
+          recent_other_logs: otherLogs || [],
+          state_survey: surveyData,
+          training_timestamp: new Date().toISOString(),
+          target_part: surveyBodyPart.name
+        }),
+        config: { systemInstruction: SYSTEM_PROMPT, temperature: 0.2 }
+      });
 
       setGenProgress(90);
       const content = response?.text;
