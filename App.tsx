@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
-import { ChevronLeft, CheckCircle2, X, Plus, Trophy, Home, Download, Loader2, CloudUpload, Check, AlertCircle, PlusCircle, Search, ArrowRight, Sparkles, Send, Info, BarChart2, Terminal, Play, Copy, Flame, Minus, Circle, Activity, Trash2, Edit3, ExternalLink, Lock } from 'lucide-react';
+import { ChevronLeft, CheckCircle2, X, Plus, Trophy, Home, Download, Loader2, CloudUpload, Check, AlertCircle, PlusCircle, Search, ArrowRight, Sparkles, Send, Info, BarChart2, Terminal, Play, Copy, Flame, Minus, Circle, Activity, Trash2, Edit3, ExternalLink, Lock, ChevronRight } from 'lucide-react';
 import { BodyPart, Exercise, ViewState, SetLog, AIWorkoutPlan, AIPlanDetails } from './types';
 import { BODY_PARTS, EXERCISES, SYSTEM_PROMPT } from './data';
 import { supabase } from './supabaseClient';
@@ -20,19 +20,19 @@ const Header = ({
   showBack?: boolean;
   action?: React.ReactNode;
 }) => (
-  <div className="flex items-center justify-between px-6 py-5 sticky top-0 z-10 bg-slate-50/70 backdrop-blur-xl border-b border-slate-200/20">
-    <div className="w-10 flex justify-start">
+  <div className="flex items-center justify-between px-6 py-4 sticky top-0 z-10 bg-[#FDFDFF]/80 backdrop-blur-xl">
+    <div className="w-12 flex justify-start">
       {showBack && (
         <button 
           onClick={onBack}
-          className="p-2 -ml-2 rounded-full hover:bg-black/5 active:bg-black/10 transition-colors"
+          className="p-2 -ml-2 rounded-full active:bg-black/5 transition-colors"
         >
-          <ChevronLeft className="w-6 h-6 text-slate-800" />
+          <ChevronLeft className="w-7 h-7 text-slate-900" />
         </button>
       )}
     </div>
-    <h1 className="text-2xl font-black text-slate-800 tracking-tight text-center truncate flex-1">{title}</h1>
-    <div className="w-10 flex justify-end items-center">
+    <h1 className="text-[1.25rem] font-bold text-slate-900 tracking-tight text-center truncate flex-1">{title}</h1>
+    <div className="w-12 flex justify-end items-center">
       {action}
     </div>
   </div>
@@ -132,7 +132,6 @@ const App = () => {
       addLog("正在评估周期状态并生成动态训练计划...");
       setGenProgress(65);
       
-      // 使用 gemini-3-pro-preview 处理复杂任务，移除自动重试，确保请求过程简单直接
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
@@ -147,7 +146,7 @@ const App = () => {
       });
 
       setGenProgress(90);
-      const content = response.text; // 直接访问 .text 属性
+      const content = response.text;
       if (!content) throw new Error("AI 响应异常。");
 
       let parsedRoot: any;
@@ -232,7 +231,6 @@ const App = () => {
     setSessionLogs(prev => ({ ...prev, [id]: [{ id: `${id}_0`, weight: 0, reps: 0 }] }));
     setShowAddModal(false);
 
-    // 同步到 exercise_library
     try {
       const { data: exists } = await supabase
         .from('exercise_library')
@@ -253,7 +251,7 @@ const App = () => {
   };
 
   return (
-    <div className="h-screen w-full bg-slate-50 relative overflow-hidden text-slate-800 selection:bg-blue-100">
+    <div className="h-screen w-full bg-[#FDFDFF] relative overflow-hidden text-slate-800 selection:bg-blue-100">
       <AnimatePresence mode="wait">
         {view === 'HOME' && <motion.div key="home" className="h-full" exit={{ opacity: 0, scale: 0.95 }}><HomeView onSelect={(p: BodyPart) => { setSurveyBodyPart(p); setShowSurvey(true); }} /></motion.div>}
         {view === 'EXERCISES' && selectedBodyPart && (
@@ -295,7 +293,6 @@ const App = () => {
 
 // --- Picker Components ---
 const PickerManager = ({ state, onClose, onUpdate }: any) => {
-  // 核心改动：如果是备注类型且当前值为空，默认设定为“主力组”
   const initialValue = state.value || (state.type === 'note' ? '主力组' : '');
   const [val, setVal] = useState(initialValue);
   const adjust = (amt: number) => setVal((p: any) => Math.max(0, Math.round((Number(p) + amt) * 10) / 10));
@@ -343,7 +340,6 @@ const PickerManager = ({ state, onClose, onUpdate }: any) => {
                           </button>
                         ))}
                     </div>
-                    {/* 移除 autoFocus 以防止键盘自动弹出，仅点击输入框时弹出 */}
                     <input 
                       value={val} 
                       onChange={e => setVal(e.target.value)} 
@@ -476,46 +472,63 @@ const PlanDetailsModal = ({ details, onClose }: any) => (
 
 // --- Exercise List View ---
 const ExerciseListView = ({ bodyPart, exercises, onSelect, onBack, onFinishWorkout, completedIds, planDetails, onShowDetails, isFinishing, onDelete, onAdd }: any) => (
-  <div className="flex flex-col h-full bg-slate-50">
+  <div className="flex flex-col h-full bg-[#FDFDFF]">
     <Header 
-        title={`${bodyPart.name}部 训练计划`} 
+        title={`${bodyPart.name}部训练`} 
         showBack 
         onBack={onBack} 
-        action={planDetails && <button onClick={onShowDetails} className="p-3 bg-blue-50 text-blue-600 rounded-2xl active:scale-90 transition-transform"><Info size={20} /></button>} 
+        action={planDetails && (
+          <button onClick={onShowDetails} className="bg-[#E8F1FF] text-[#4A86E8] p-2 rounded-xl flex flex-col items-center justify-center min-w-[3.5rem] active:scale-95 transition-all">
+            <Info size={16} className="mb-0.5" />
+            <span className="text-[10px] font-bold leading-none">详情</span>
+          </button>
+        )} 
     />
-    <div className="flex-1 overflow-y-auto px-6 pb-40 no-scrollbar space-y-3 mt-4">
+    <div className="flex-1 overflow-y-auto px-6 pb-40 no-scrollbar space-y-4 mt-2">
       {exercises.map((ex: any, i: number) => (
         <motion.div 
             key={ex.id} 
             initial={{ y: 20, opacity: 0 }} 
             animate={{ y: 0, opacity: 1 }} 
-            transition={{ delay: i * 0.1, type: 'spring', damping: 20 }} 
-            className="group relative"
+            transition={{ delay: i * 0.05 }} 
+            className="relative"
         >
-          <div className="absolute inset-0 bg-white rounded-[1.8rem] shadow-lg shadow-slate-200/20" />
-          <div className="relative w-full rounded-[1.8rem] border border-slate-100/50 flex items-center p-3.5 gap-3.5 active:scale-[0.98] transition-all bg-white overflow-hidden">
-            <button onClick={() => onSelect(ex)} className="flex-1 flex items-center gap-3.5 text-left">
-              <div className={`w-10 h-10 rounded-[1.2rem] flex items-center justify-center transition-all duration-500 ${completedIds.includes(ex.id) ? 'bg-green-500 text-white shadow-xl shadow-green-100' : 'bg-slate-50 text-slate-200'}`}>
-                <Check size={20} strokeWidth={4} />
-              </div>
-              <span className="text-lg font-black text-slate-900 tracking-tight leading-none pt-0.5">{ex.name}</span>
-            </button>
-            <button onClick={(e) => { e.stopPropagation(); onDelete(ex.id); }} className="p-2 text-slate-100 hover:text-rose-500 transition-colors">
-              <Trash2 size={18} />
-            </button>
-          </div>
+          <button 
+            onClick={() => onSelect(ex)} 
+            className="w-full bg-white rounded-[1.25rem] border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.03)] flex items-center px-6 py-5 gap-4 active:scale-[0.98] active:bg-slate-50 transition-all text-left"
+          >
+            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${completedIds.includes(ex.id) ? 'bg-green-500 border-green-500 text-white' : 'border-slate-200 bg-transparent text-transparent'}`}>
+              <Check size={14} strokeWidth={4} />
+            </div>
+            <span className="flex-1 text-[1.05rem] font-bold text-slate-800 tracking-tight leading-none">{ex.name}</span>
+            <ChevronRight size={20} className="text-slate-300" />
+          </button>
+          
+          {/* Subtle delete button for functionality, positioned absolutely */}
+          <button 
+            onClick={(e) => { e.stopPropagation(); onDelete(ex.id); }} 
+            className="absolute -right-2 -top-2 p-1.5 bg-white border border-slate-100 rounded-full text-slate-100 hover:text-rose-500 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <X size={12} />
+          </button>
         </motion.div>
       ))}
       <button 
         onClick={onAdd}
-        className="w-full py-4 rounded-[1.8rem] bg-slate-100/50 border-2 border-dashed border-slate-200 text-slate-400 font-black flex items-center justify-center gap-2 active:scale-95 transition-all text-xs tracking-widest uppercase"
+        className="w-full py-5 rounded-[1.25rem] bg-transparent border-2 border-dashed border-slate-200 text-slate-400 font-bold flex items-center justify-center gap-2 active:scale-95 transition-all"
       >
-        <PlusCircle size={18} /> 添加动作
+        <Plus size={20} className="text-slate-300" />
+        <span className="text-[1rem]">添加动作</span>
       </button>
     </div>
-    <div className="fixed bottom-0 left-0 right-0 p-8 bg-white/70 backdrop-blur-xl border-t border-slate-100/30">
-        <button onClick={onFinishWorkout} disabled={isFinishing} className="w-full py-5 bg-slate-900 text-white font-black text-2xl tracking-[0.25em] rounded-[2.5rem] shadow-2xl flex items-center justify-center gap-3 active:scale-95 active:shadow-sm transition-all">
-            {isFinishing ? <Loader2 className="animate-spin" /> : <><Trophy size={24} className="text-yellow-400"/> 结束训练</>}
+    
+    <div className="fixed bottom-0 left-0 right-0 p-8 pb-10 bg-gradient-to-t from-white via-white to-transparent pointer-events-none">
+        <button 
+          onClick={onFinishWorkout} 
+          disabled={isFinishing} 
+          className="pointer-events-auto w-full py-5 bg-[#1E2235] text-white font-bold text-[1.1rem] tracking-[0.1em] rounded-[1.5rem] shadow-2xl flex items-center justify-center gap-3 active:scale-[0.98] transition-all"
+        >
+            {isFinishing ? <Loader2 className="animate-spin" /> : <><Trophy size={20} className="text-yellow-400 fill-yellow-400"/> 完成今日训练</>}
         </button>
     </div>
   </div>
