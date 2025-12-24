@@ -1,11 +1,31 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
-import { ChevronLeft, CheckCircle2, X, Plus, Trophy, Home, Download, Loader2, CloudUpload, Check, AlertCircle, PlusCircle, Search, ArrowRight, Sparkles, Send, Info, BarChart2, Terminal, Play, Copy, Flame, Minus, Circle, Activity, Trash2, Edit3, ExternalLink, Lock } from 'lucide-react';
+import { ChevronLeft, CheckCircle2, X, Plus, Trophy, Home, Download, Loader2, CloudUpload, Check, AlertCircle, PlusCircle, Search, ArrowRight, Sparkles, Send, Info, BarChart2, Terminal, Play, Copy, Flame, Minus, Circle, Activity, Trash2, Edit3, ExternalLink, Lock, Cpu, ShieldCheck } from 'lucide-react';
 import { BodyPart, Exercise, ViewState, SetLog, AIWorkoutPlan, AIPlanDetails } from './types';
 import { BODY_PARTS, EXERCISES, SYSTEM_PROMPT } from './data';
 import { supabase } from './supabaseClient';
 import { GoogleGenAI } from "@google/genai";
+
+// --- Global Types for AI Studio Environment ---
+/**
+ * Interface representing the AI Studio environment helper.
+ * Defined as a named interface to ensure identity-based type matching in global augmentations.
+ */
+interface AIStudio {
+  hasSelectedApiKey: () => Promise<boolean>;
+  openSelectKey: () => Promise<void>;
+}
+
+declare global {
+  interface Window {
+    /**
+     * The aistudio property is pre-configured in the execution context.
+     * Using the named AIStudio interface resolves identical modifier and type mismatch errors.
+     */
+    aistudio?: AIStudio;
+  }
+}
 
 // --- Utility Components ---
 
@@ -60,6 +80,17 @@ const App = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [logs, setLogs] = useState<SetLog[]>([]);
   const [pickerState, setPickerState] = useState<{ isOpen: boolean; type: 'weight' | 'reps' | 'rpe' | 'note'; setId: string; value: number | string; } | null>(null);
+  const [hasAIKey, setHasAIKey] = useState<boolean>(false);
+
+  useEffect(() => {
+    const checkKey = async () => {
+      if (window.aistudio) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        setHasAIKey(hasKey);
+      }
+    };
+    checkKey();
+  }, [view]);
 
   useEffect(() => {
     if (view === 'SESSION' && selectedExercise) {
@@ -69,8 +100,22 @@ const App = () => {
 
   const addLog = (message: string) => setLoadingLogs(prev => [...prev, message]);
 
+  const handleActivateAI = async () => {
+    if (window.aistudio) {
+      await window.aistudio.openSelectKey();
+      setHasAIKey(true); // Proceed anyway to avoid race condition
+    }
+  };
+
   const handleGeneratePlan = async (surveyData: any) => {
     if (!surveyBodyPart) return;
+    
+    // Check key again before starting
+    if (window.aistudio && !(await window.aistudio.hasSelectedApiKey())) {
+      await window.aistudio.openSelectKey();
+      setHasAIKey(true);
+    }
+
     setIsGenerating(true);
     setGenError(false);
     setLoadingLogs([]);
@@ -132,6 +177,7 @@ const App = () => {
       addLog("正在评估周期状态并生成动态训练计划...");
       setGenProgress(65);
       
+      // Instantiate Fresh AI Instance with latest Key right before generating content.
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
@@ -194,7 +240,12 @@ const App = () => {
           throw new Error("解析数据格式失败。");
       }
     } catch (error: any) {
-        addLog(`[错误] ${error.message}`);
+        let errorMsg = error.message;
+        if (errorMsg.includes("Requested entity was not found")) {
+          errorMsg = "API 授权失效，请重新激活。";
+          setHasAIKey(false);
+        }
+        addLog(`[错误] ${errorMsg}`);
         setGenError(true);
     }
   };
@@ -228,7 +279,6 @@ const App = () => {
     setSessionLogs(prev => ({ ...prev, [id]: [{ id: `${id}_0`, weight: 0, reps: 0 }] }));
     setShowAddModal(false);
 
-    // 同步到 exercise_library
     try {
       const { data: exists } = await supabase
         .from('exercise_library')
@@ -251,7 +301,15 @@ const App = () => {
   return (
     <div className="h-screen w-full bg-slate-50 relative overflow-hidden text-slate-800 selection:bg-blue-100">
       <AnimatePresence mode="wait">
-        {view === 'HOME' && <motion.div key="home" className="h-full" exit={{ opacity: 0, scale: 0.95 }}><HomeView onSelect={(p) => { setSurveyBodyPart(p); setShowSurvey(true); }} /></motion.div>}
+        {view === 'HOME' && (
+          <motion.div key="home" className="h-full" exit={{ opacity: 0, scale: 0.95 }}>
+            <HomeView 
+              hasKey={hasAIKey} 
+              onActivate={handleActivateAI} 
+              onSelect={(p) => { setSurveyBodyPart(p); setShowSurvey(true); }} 
+            />
+          </motion.div>
+        )}
         {view === 'EXERCISES' && selectedBodyPart && (
           <motion.div key="exercises" className="h-full" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
             <ExerciseListView bodyPart={selectedBodyPart} exercises={currentExercises} onSelect={(ex) => { setSelectedExercise(ex); setView('SESSION'); }} onBack={() => setView('HOME')} onFinishWorkout={() => setShowFatigueModal(true)} completedIds={completedExercises} planDetails={aiPlanDetails || undefined} onShowDetails={() => setShowPlanDetails(true)} onAdd={() => setShowAddModal(true)} isFinishing={isFinishing} onDelete={(id) => setCurrentExercises(prev => prev.filter(e => e.id !== id))} />
@@ -288,6 +346,64 @@ const App = () => {
     </div>
   );
 };
+
+// --- Home View ---
+const HomeView = ({ hasKey, onActivate, onSelect }: any) => (
+  <div className="flex flex-col h-full overflow-hidden p-8 justify-center gap-10">
+    <div className="text-center space-y-2">
+      <div className="flex justify-center items-center gap-2 mb-2">
+        <div className={`w-2 h-2 rounded-full ${hasKey ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+          AI Coach {hasKey ? 'Online' : 'Offline'}
+        </span>
+      </div>
+      <motion.h3 
+        initial={{ opacity: 0, y: 10 }} 
+        animate={{ opacity: 1, y: 0 }}
+        className="text-4xl font-black text-slate-800 tracking-tighter"
+      >
+        今天练哪
+      </motion.h3>
+    </div>
+
+    <div className="grid grid-cols-2 gap-6 max-w-sm mx-auto w-full">
+      {BODY_PARTS.map((part, i) => (
+        <motion.button 
+          key={part.id} 
+          onClick={() => onSelect(part)} 
+          initial={{ opacity: 0, scale: 0.9 }} 
+          animate={{ opacity: 1, scale: 1 }} 
+          transition={{ delay: i * 0.08, type: 'spring', damping: 15 }} 
+          className={`aspect-square rounded-[2.5rem] ${part.color} bg-opacity-20 flex flex-col items-center justify-center gap-4 border-[6px] border-white shadow-xl shadow-slate-200/40 active:scale-95 active:shadow-sm transition-all`}
+        >
+          <span className="text-2xl font-black tracking-tight">{part.name}</span>
+        </motion.button>
+      ))}
+    </div>
+
+    {!hasKey && (
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-xs mx-auto w-full p-6 bg-blue-600 rounded-[2rem] text-white shadow-2xl shadow-blue-200 flex flex-col items-center gap-4"
+      >
+        <div className="flex items-center gap-3">
+          <Cpu className="w-5 h-5 text-blue-200" />
+          <span className="font-black text-sm tracking-tight">智能教练未就绪</span>
+        </div>
+        <p className="text-[10px] font-bold text-blue-100 text-center leading-relaxed">
+          检测到您使用的是 Gemini 3 Pro 模型，需要在浏览器端手动激活 API Key 授权。
+        </p>
+        <button 
+          onClick={onActivate}
+          className="w-full py-3 bg-white text-blue-600 rounded-xl font-black text-xs tracking-widest uppercase hover:bg-blue-50 transition-colors"
+        >
+          激活 AI 授权
+        </button>
+      </motion.div>
+    )}
+  </div>
+);
 
 // --- Picker Components ---
 const PickerManager = ({ state, onClose, onUpdate }: any) => {
@@ -340,35 +456,6 @@ const PickerManager = ({ state, onClose, onUpdate }: any) => {
     </div>
   );
 };
-
-// --- Home View ---
-const HomeView = ({ onSelect }: any) => (
-  <div className="flex flex-col h-full overflow-hidden p-10 justify-center gap-14">
-    <div className="text-center">
-      <motion.h3 
-        initial={{ opacity: 0, y: 10 }} 
-        animate={{ opacity: 1, y: 0 }}
-        className="text-4xl font-black text-slate-800 tracking-tighter"
-      >
-        今天练哪
-      </motion.h3>
-    </div>
-    <div className="grid grid-cols-2 gap-7 max-w-sm mx-auto w-full">
-      {BODY_PARTS.map((part, i) => (
-        <motion.button 
-          key={part.id} 
-          onClick={() => onSelect(part)} 
-          initial={{ opacity: 0, scale: 0.9 }} 
-          animate={{ opacity: 1, scale: 1 }} 
-          transition={{ delay: i * 0.08, type: 'spring', damping: 15 }} 
-          className={`aspect-square rounded-[3rem] ${part.color} bg-opacity-20 flex flex-col items-center justify-center gap-4 border-[6px] border-white shadow-2xl shadow-slate-200/40 active:scale-95 active:shadow-sm transition-all`}
-        >
-          <span className="text-3xl font-black tracking-tight">{part.name}</span>
-        </motion.button>
-      ))}
-    </div>
-  </div>
-);
 
 // --- Survey Modal ---
 const SurveyModal = ({ onClose, onGenerate, loading }: any) => {
@@ -433,7 +520,7 @@ const SurveyModal = ({ onClose, onGenerate, loading }: any) => {
 const PlanDetailsModal = ({ details, onClose }: any) => (
   <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
     <div className="absolute inset-0 bg-slate-900/10 backdrop-blur-lg" onClick={onClose} />
-    <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-white w-full max-w-md rounded-[3rem] overflow-hidden shadow-2xl flex flex-col max-h-[75vh]">
+    <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-white w-full max-md rounded-[3rem] overflow-hidden shadow-2xl flex flex-col max-h-[75vh]">
       <div className="bg-slate-900 p-8 text-white shrink-0 flex justify-between items-center">
         <div><h3 className="text-xl font-black tracking-tight">AI 智能教练透视</h3><p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] mt-1">Intelligence Insight</p></div>
         <button onClick={onClose} className="p-3 bg-white/10 rounded-full hover:bg-white/20 transition-colors"><X size={20} /></button>
@@ -471,7 +558,6 @@ const ExerciseListView = ({ bodyPart, exercises, onSelect, onBack, onFinishWorko
               <div className={`w-10 h-10 rounded-[1.2rem] flex items-center justify-center transition-all duration-500 ${completedIds.includes(ex.id) ? 'bg-green-500 text-white shadow-xl shadow-green-100' : 'bg-slate-50 text-slate-200'}`}>
                 <Check size={20} strokeWidth={4} />
               </div>
-              {/* 动作名称字体颜色改为黑色 */}
               <span className="text-lg font-black text-slate-900 tracking-tight leading-none pt-0.5">{ex.name}</span>
             </button>
             <button onClick={(e) => { e.stopPropagation(); onDelete(ex.id); }} className="p-2 text-slate-100 hover:text-rose-500 transition-colors">
@@ -488,7 +574,6 @@ const ExerciseListView = ({ bodyPart, exercises, onSelect, onBack, onFinishWorko
       </button>
     </div>
     <div className="fixed bottom-0 left-0 right-0 p-8 bg-white/70 backdrop-blur-xl border-t border-slate-100/30">
-        {/* 显著放大“结束训练”字体 */}
         <button onClick={onFinishWorkout} disabled={isFinishing} className="w-full py-5 bg-slate-900 text-white font-black text-2xl tracking-[0.25em] rounded-[2.5rem] shadow-2xl flex items-center justify-center gap-3 active:scale-95 active:shadow-sm transition-all">
             {isFinishing ? <Loader2 className="animate-spin" /> : <><Trophy size={24} className="text-yellow-400"/> 结束训练</>}
         </button>
