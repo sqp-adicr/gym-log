@@ -132,8 +132,8 @@ const App = () => {
       addLog("正在评估周期状态并生成动态训练计划...");
       setGenProgress(65);
       
-      // Hardcoded API Key as requested by the user
-      const ai = new GoogleGenAI({ apiKey: "AQ.Ab8RN6I-xMEbNfFhivGdCysp18u0P-p5SRbwAIE5U7-wy-otAw" });
+      // Mandatory: Using process.env.API_KEY as per system guidelines
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: JSON.stringify({
@@ -150,7 +150,7 @@ const App = () => {
       const content = response.text;
       if (!content) throw new Error("AI 响应异常。");
 
-      let parsedRoot;
+      let parsedRoot: any;
       const match = content.match(/\{[\s\S]*\}/);
       if (match) parsedRoot = JSON.parse(match[0]);
 
@@ -200,15 +200,17 @@ const App = () => {
     }
   };
 
+  // Fixed shadowing of 'logs' state and ensured type for Object.entries values
   const handleFinishWorkout = async (fatigueScore: number) => {
     setShowFatigueModal(false);
     setIsFinishing(true);
     try {
       const records = [];
       const dateStr = new Date().toISOString().split('T')[0];
-      for (const [id, logs] of Object.entries(sessionLogs)) {
+      for (const [id, entryLogs] of Object.entries(sessionLogs)) {
         const ex = currentExercises.find(e => e.id === id);
-        const valid = logs.filter(l => l.weight > 0 || l.reps > 0);
+        // Explicit cast to SetLog[] to avoid 'unknown' filter error
+        const valid = (entryLogs as SetLog[]).filter(l => l.weight > 0 || l.reps > 0);
         if (valid.length > 0) {
             records.push({ 
               body_part: selectedBodyPart?.id, 
@@ -252,10 +254,10 @@ const App = () => {
   return (
     <div className="h-screen w-full bg-slate-50 relative overflow-hidden text-slate-800 selection:bg-blue-100">
       <AnimatePresence mode="wait">
-        {view === 'HOME' && <motion.div key="home" className="h-full" exit={{ opacity: 0, scale: 0.95 }}><HomeView onSelect={(p) => { setSurveyBodyPart(p); setShowSurvey(true); }} /></motion.div>}
+        {view === 'HOME' && <motion.div key="home" className="h-full" exit={{ opacity: 0, scale: 0.95 }}><HomeView onSelect={(p: BodyPart) => { setSurveyBodyPart(p); setShowSurvey(true); }} /></motion.div>}
         {view === 'EXERCISES' && selectedBodyPart && (
           <motion.div key="exercises" className="h-full" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
-            <ExerciseListView bodyPart={selectedBodyPart} exercises={currentExercises} onSelect={(ex) => { setSelectedExercise(ex); setView('SESSION'); }} onBack={() => setView('HOME')} onFinishWorkout={() => setShowFatigueModal(true)} completedIds={completedExercises} planDetails={aiPlanDetails || undefined} onShowDetails={() => setShowPlanDetails(true)} onAdd={() => setShowAddModal(true)} isFinishing={isFinishing} onDelete={(id) => setCurrentExercises(prev => prev.filter(e => e.id !== id))} />
+            <ExerciseListView bodyPart={selectedBodyPart} exercises={currentExercises} onSelect={(ex: Exercise) => { setSelectedExercise(ex); setView('SESSION'); }} onBack={() => setView('HOME')} onFinishWorkout={() => setShowFatigueModal(true)} completedIds={completedExercises} planDetails={aiPlanDetails || undefined} onShowDetails={() => setShowPlanDetails(true)} onAdd={() => setShowAddModal(true)} isFinishing={isFinishing} onDelete={(id: string) => setCurrentExercises(prev => prev.filter(e => e.id !== id))} />
           </motion.div>
         )}
         {view === 'SESSION' && selectedExercise && (
@@ -264,7 +266,7 @@ const App = () => {
              <div className="flex-1 overflow-y-auto p-4 no-scrollbar space-y-3">
                 <Reorder.Group axis="y" values={logs} onReorder={setLogs} className="space-y-3">
                   {logs.map(log => (
-                    <SetItem key={log.id} item={log} onDelete={() => setLogs(prev => prev.filter(l => l.id !== log.id))} onOpenPicker={(type, id, val) => setPickerState({ isOpen: true, type, setId: id, value: val })} />
+                    <SetItem key={log.id} item={log} onDelete={() => setLogs(prev => prev.filter(l => l.id !== log.id))} onOpenPicker={(type: string, id: string, val: any) => setPickerState({ isOpen: true, type: type as any, setId: id, value: val })} />
                   ))}
                 </Reorder.Group>
                 <button onClick={() => setLogs(prev => [...prev, { id: String(Date.now()), weight: logs[logs.length-1]?.weight || 0, reps: logs[logs.length-1]?.reps || 0 }])} className="w-full py-4 rounded-[1.2rem] bg-white border-2 border-dashed border-slate-200 text-slate-400 font-black flex items-center justify-center gap-2 active:scale-95 transition-all text-xs tracking-widest uppercase"><Plus size={16} /> 添加组数</button>
@@ -281,7 +283,7 @@ const App = () => {
         {showPlanDetails && aiPlanDetails && <PlanDetailsModal details={aiPlanDetails} onClose={() => setShowPlanDetails(false)} />}
         {showFatigueModal && <FatigueModal onConfirm={handleFinishWorkout} loading={isFinishing} />}
         {showAddModal && <AddExerciseModal bodyPart={selectedBodyPart!} onClose={() => setShowAddModal(false)} onSelect={addNewExercise} />}
-        {pickerState?.isOpen && <PickerManager state={pickerState} onClose={() => setPickerState(null)} onUpdate={(v) => {
+        {pickerState?.isOpen && <PickerManager state={pickerState} onClose={() => setPickerState(null)} onUpdate={(v: any) => {
             const { type, setId } = pickerState;
             setLogs(l => l.map(x => x.id === setId ? { ...x, [type]: v } : x));
         }} />}
@@ -378,7 +380,7 @@ const SurveyModal = ({ onClose, onGenerate, loading }: any) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
       <div className="absolute inset-0 bg-slate-900/10 backdrop-blur-lg" onClick={loading ? undefined : onClose} />
-      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-white w-full max-w-sm rounded-[3rem] overflow-hidden shadow-2xl border border-white/20">
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-white w-full max-sm rounded-[3rem] overflow-hidden shadow-2xl border border-white/20">
         <div className="p-10 pb-4 flex justify-between items-center"><h3 className="text-xl font-black text-slate-800 tracking-tight">状态检查</h3><button onClick={onClose} className="p-2 bg-slate-50 rounded-full"><X size={18}/></button></div>
         <div className="px-10 pb-10 pt-4 space-y-8">
           <div className="space-y-4">
@@ -434,7 +436,7 @@ const SurveyModal = ({ onClose, onGenerate, loading }: any) => {
 const PlanDetailsModal = ({ details, onClose }: any) => (
   <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
     <div className="absolute inset-0 bg-slate-900/10 backdrop-blur-lg" onClick={onClose} />
-    <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-white w-full max-w-md rounded-[3rem] overflow-hidden shadow-2xl flex flex-col max-h-[75vh]">
+    <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-white w-full max-md rounded-[3rem] overflow-hidden shadow-2xl flex flex-col max-h-[75vh]">
       <div className="bg-slate-900 p-8 text-white shrink-0 flex justify-between items-center">
         <div><h3 className="text-xl font-black tracking-tight">AI 智能教练透视</h3><p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] mt-1">Intelligence Insight</p></div>
         <button onClick={onClose} className="p-3 bg-white/10 rounded-full hover:bg-white/20 transition-colors"><X size={20} /></button>
