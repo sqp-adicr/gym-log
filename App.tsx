@@ -132,7 +132,7 @@ const App = () => {
       addLog("正在评估周期状态并生成动态训练计划...");
       setGenProgress(65);
       
-      // Mandatory: Using process.env.API_KEY as per system guidelines
+      // Mandatory: Using process.env.API_KEY as per system guidelines and ensuring usage of gemini-3-pro-preview
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
@@ -200,7 +200,6 @@ const App = () => {
     }
   };
 
-  // Fixed shadowing of 'logs' state and ensured type for Object.entries values
   const handleFinishWorkout = async (fatigueScore: number) => {
     setShowFatigueModal(false);
     setIsFinishing(true);
@@ -209,7 +208,7 @@ const App = () => {
       const dateStr = new Date().toISOString().split('T')[0];
       for (const [id, entryLogs] of Object.entries(sessionLogs)) {
         const ex = currentExercises.find(e => e.id === id);
-        // Explicit cast to SetLog[] to avoid 'unknown' filter error
+        // Explicit cast to ensure type safety when processing logs for database sync
         const valid = (entryLogs as SetLog[]).filter(l => l.weight > 0 || l.reps > 0);
         if (valid.length > 0) {
             records.push({ 
@@ -330,7 +329,7 @@ const PickerManager = ({ state, onClose, onUpdate }: any) => {
                ) : (
                  <div className="space-y-5">
                     <div className="flex flex-wrap gap-2">
-                        {['主力组', '热身组', '冲击组', '离心控制', '停顿组'].map(tag => <button key={tag} onClick={() => { onUpdate(tag); onClose(); }} className="px-5 py-3.5 rounded-2xl bg-slate-50 font-black text-[10px] text-slate-400 hover:bg-slate-100 tracking-widest">{tag}</button>)}
+                        {['主力组', '热身组', '冲击组', '离心慢放','控制', '停顿组'].map(tag => <button key={tag} onClick={() => { onUpdate(tag); onClose(); }} className="px-5 py-3.5 rounded-2xl bg-slate-50 font-black text-[10px] text-slate-400 hover:bg-slate-100 tracking-widest">{tag}</button>)}
                     </div>
                     <input autoFocus value={val} onChange={e => setVal(e.target.value)} className="w-full p-6 bg-slate-50 rounded-2xl border-none outline-none font-black text-sm placeholder:text-slate-200" placeholder="点击标签或手动输入..." />
                  </div>
@@ -504,12 +503,12 @@ const AddExerciseModal = ({ bodyPart, onClose, onSelect }: { bodyPart: BodyPart,
   const [loadingLib, setLoadingLib] = useState(true);
 
   useEffect(() => {
-    const fetchLib = async () => {
+    const fetchLib = async (bodyPartName: string) => {
       try {
         const { data } = await supabase
           .from('exercise_library')
           .select('exercise_name')
-          .eq('body_part', bodyPart.name)
+          .eq('body_part', bodyPartName)
           .order('exercise_name');
         
         if (data) {
@@ -521,7 +520,7 @@ const AddExerciseModal = ({ bodyPart, onClose, onSelect }: { bodyPart: BodyPart,
         setLoadingLib(false);
       }
     };
-    fetchLib();
+    fetchLib(bodyPart.name);
   }, [bodyPart.name]);
 
   const defaultEx = EXERCISES[bodyPart.id] || [];
