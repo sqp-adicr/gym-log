@@ -133,22 +133,39 @@ const App = () => {
       setGenProgress(65);
       
       // Mandatory: Using process.env.API_KEY as per system guidelines and ensuring usage of gemini-3-pro-preview
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: JSON.stringify({
-          recent_target_logs: targetLogs || [],
-          recent_other_logs: otherLogs || [],
-          state_survey: surveyData,
-          training_timestamp: new Date().toISOString(),
-          target_part: surveyBodyPart.name
-        }),
-        config: { systemInstruction: SYSTEM_PROMPT, temperature: 0.2 }
-      });
+      let response;
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (attempts < maxAttempts) {
+        try {
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+          response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: JSON.stringify({
+              recent_target_logs: targetLogs || [],
+              recent_other_logs: otherLogs || [],
+              state_survey: surveyData,
+              training_timestamp: new Date().toISOString(),
+              target_part: surveyBodyPart.name
+            }),
+            config: { systemInstruction: SYSTEM_PROMPT, temperature: 0.2 }
+          });
+          // If successful, break out of the retry loop
+          break;
+        } catch (err: any) {
+          attempts++;
+          if (attempts >= maxAttempts) throw err; // Final attempt failed, throw to main catch block
+          
+          const delay = attempts * 1500; // Exponential backoff
+          addLog(`[网络重试] 手机连接不稳定，正在进行第 ${attempts} 次自动重试...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
 
       setGenProgress(90);
-      const content = response.text;
-      if (!content) throw new Error("AI 响应异常。");
+      const content = response?.text;
+      if (!content) throw new Error("AI 响应异常或为空。");
 
       let parsedRoot: any;
       const match = content.match(/\{[\s\S]*\}/);
@@ -195,7 +212,8 @@ const App = () => {
           throw new Error("解析数据格式失败。");
       }
     } catch (error: any) {
-        addLog(`[错误] ${error.message}`);
+        console.error("Plan generation error:", error);
+        addLog(`[错误] ${error.message || '网络连接异常'}`);
         setGenError(true);
     }
   };
@@ -206,8 +224,6 @@ const App = () => {
     try {
       const records = [];
       const dateStr = new Date().toISOString().split('T')[0];
-      // Updated: Iterate over currentExercises to ensure deleted exercises are not uploaded
-      // and newly added manual exercises ARE uploaded.
       for (const ex of currentExercises) {
         const entryLogs = sessionLogs[ex.id];
         if (!entryLogs) continue;
@@ -342,7 +358,6 @@ const PickerManager = ({ state, onClose, onUpdate }: any) => {
                           </button>
                         ))}
                     </div>
-                    {/* Removed autoFocus to prevent keyboard from popping up immediately */}
                     <input 
                       value={val} 
                       onChange={e => setVal(e.target.value)} 
@@ -354,7 +369,6 @@ const PickerManager = ({ state, onClose, onUpdate }: any) => {
             </div>
         )}
 
-        {/* Updated: show confirm button for 'note' type too */}
         {(state.type === 'weight' || state.type === 'note') && (
           <button 
             onClick={() => { onUpdate(val); onClose(); }} 
