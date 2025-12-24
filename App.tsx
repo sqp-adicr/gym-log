@@ -206,14 +206,17 @@ const App = () => {
     try {
       const records = [];
       const dateStr = new Date().toISOString().split('T')[0];
-      for (const [id, entryLogs] of Object.entries(sessionLogs)) {
-        const ex = currentExercises.find(e => e.id === id);
-        // Explicit cast to ensure type safety when processing logs for database sync
+      // Updated: Iterate over currentExercises to ensure deleted exercises are not uploaded
+      // and newly added manual exercises ARE uploaded.
+      for (const ex of currentExercises) {
+        const entryLogs = sessionLogs[ex.id];
+        if (!entryLogs) continue;
+        
         const valid = (entryLogs as SetLog[]).filter(l => l.weight > 0 || l.reps > 0);
         if (valid.length > 0) {
             records.push({ 
               body_part: selectedBodyPart?.id, 
-              exercise: ex?.name || id, 
+              exercise: ex.name, 
               sets: valid.map((l, i) => ({ set: i+1, reps: l.reps, weight_kg: l.weight, rpe: l.rpe, note: l.note })), 
               date: dateStr 
             });
@@ -329,15 +332,37 @@ const PickerManager = ({ state, onClose, onUpdate }: any) => {
                ) : (
                  <div className="space-y-5">
                     <div className="flex flex-wrap gap-2">
-                        {['主力组', '热身组', '冲击组', '离心慢放','控制', '停顿组'].map(tag => <button key={tag} onClick={() => { onUpdate(tag); onClose(); }} className="px-5 py-3.5 rounded-2xl bg-slate-50 font-black text-[10px] text-slate-400 hover:bg-slate-100 tracking-widest">{tag}</button>)}
+                        {['主力组', '热身组', '冲击组', '离心慢放','控制', '停顿组'].map(tag => (
+                          <button 
+                            key={tag} 
+                            onClick={() => setVal(tag)} 
+                            className={`px-5 py-3.5 rounded-2xl font-black text-[10px] tracking-widest transition-all ${val === tag ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                          >
+                            {tag}
+                          </button>
+                        ))}
                     </div>
-                    <input autoFocus value={val} onChange={e => setVal(e.target.value)} className="w-full p-6 bg-slate-50 rounded-2xl border-none outline-none font-black text-sm placeholder:text-slate-200" placeholder="点击标签或手动输入..." />
+                    {/* Removed autoFocus to prevent keyboard from popping up immediately */}
+                    <input 
+                      value={val} 
+                      onChange={e => setVal(e.target.value)} 
+                      className="w-full p-6 bg-slate-50 rounded-2xl border-none outline-none font-black text-sm placeholder:text-slate-200" 
+                      placeholder="点击标签或手动输入..." 
+                    />
                  </div>
                )}
             </div>
         )}
 
-        {state.type === 'weight' && <button onClick={() => { onUpdate(val); onClose(); }} className="w-full mt-8 py-5 bg-slate-900 text-white font-black rounded-[1.8rem] shadow-xl active:scale-95 transition-all text-sm tracking-widest uppercase">确认修改</button>}
+        {/* Updated: show confirm button for 'note' type too */}
+        {(state.type === 'weight' || state.type === 'note') && (
+          <button 
+            onClick={() => { onUpdate(val); onClose(); }} 
+            className="w-full mt-8 py-5 bg-slate-900 text-white font-black rounded-[1.8rem] shadow-xl active:scale-95 transition-all text-sm tracking-widest uppercase"
+          >
+            确认修改
+          </button>
+        )}
       </motion.div>
     </div>
   );
