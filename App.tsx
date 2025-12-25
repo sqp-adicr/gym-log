@@ -60,6 +60,16 @@ const App = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [logs, setLogs] = useState<SetLog[]>([]);
   const [pickerState, setPickerState] = useState<{ isOpen: boolean; type: 'weight' | 'reps' | 'rpe' | 'note'; setId: string; value: number | string; } | null>(null);
+  
+  // 记录每个部位当前的训练周期
+  const [bodyPartPeriods, setBodyPartPeriods] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem('gym_periods');
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  useEffect(() => {
+    localStorage.setItem('gym_periods', JSON.stringify(bodyPartPeriods));
+  }, [bodyPartPeriods]);
 
   useEffect(() => {
     if (view === 'SESSION' && selectedExercise) {
@@ -79,55 +89,26 @@ const App = () => {
 
     try {
       setGenProgress(15);
-      addLog(`[准备] 正在读取您的云端训练历史...`);
+      addLog(`[准备] 正在读取您过去 4 周的全部训练记录...`);
       
-      const { data: targetDatesData } = await supabase
-        .from('workout_logs')
-        .select('date')
-        .eq('body_part', surveyBodyPart.id)
-        .order('date', { ascending: false });
-      
-      const datesList = (targetDatesData || []) as Array<{ date: string }>;
-      const uniqueDates = Array.from(new Set(datesList.map(d => d.date))).slice(0, 4);
-      
-      const { data: targetLogs, error: targetError } = await supabase
+      const fourWeeksAgo = new Date();
+      fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+      const startDateStr = fourWeeksAgo.toISOString().split('T')[0];
+
+      const { data: allLogs, error: fetchError } = await supabase
         .from('workout_logs')
         .select('*')
-        .eq('body_part', surveyBodyPart.id)
-        .in('date', uniqueDates)
+        .gte('date', startDateStr)
         .order('date', { ascending: false });
 
-      if (targetError) throw new Error(`数据读取失败: ${targetError.message}`);
-      setGenProgress(35);
-      
-      const targetDatesFormatted = uniqueDates.map(d => String(d).split('-').slice(1).join('.')).join(', ');
-      addLog(`[纵向同步] 已找到 ${surveyBodyPart.name} 部位过去 4 次训练细节: ${targetDatesFormatted || '首次记录'}。`);
-
-      const lastWeek = new Date();
-      lastWeek.setDate(lastWeek.getDate() - 7);
-      const lastWeekStr = lastWeek.toISOString().split('T')[0];
-
-      const { data: otherLogs, error: otherError } = await supabase
-        .from('workout_logs')
-        .select('*')
-        .neq('body_part', surveyBodyPart.id)
-        .gte('date', lastWeekStr)
-        .order('date', { ascending: false });
-
-      if (otherError) throw new Error(`交叉数据同步失败: ${otherError.message}`);
+      if (fetchError) throw new Error(`数据同步失败: ${fetchError.message}`);
       setGenProgress(50);
       
-      const otherLogsByDate: Record<string, string[]> = {};
-      const otherLogsList = (otherLogs || []) as Array<{ date: string; body_part: string }>;
-      otherLogsList.forEach((d) => {
-          const dateKey = d.date.split('-').slice(1).join('.');
-          const partName = BODY_PARTS.find(p => p.id === d.body_part)?.name || d.body_part;
-          if (!otherLogsByDate[dateKey]) otherLogsByDate[dateKey] = [];
-          if (!otherLogsByDate[dateKey].includes(partName)) otherLogsByDate[dateKey].push(partName);
-      });
+      const logsArray = allLogs || [];
+      const targetLogs = logsArray.filter(l => l.body_part === surveyBodyPart.name);
+      const otherLogs = logsArray.filter(l => l.body_part !== surveyBodyPart.name);
 
-      const otherLogsSummary = Object.entries(otherLogsByDate).map(([date, parts]) => `${date}[${parts.join(',')}]`).join(', ');
-      addLog(`[横向同步] 已同步过去 7 天训练表现: ${otherLogsSummary || '暂无其他部位数据'}。`);
+      addLog(`[同步] 已从云端加载 ${logsArray.length} 条记录（${surveyBodyPart.name}部位 ${targetLogs.length} 条）。`);
 
       addLog("正在评估周期状态并生成动态训练计划...");
       setGenProgress(65);
@@ -136,8 +117,8 @@ const App = () => {
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: JSON.stringify({
-          recent_target_logs: targetLogs || [],
-          recent_other_logs: otherLogs || [],
+          recent_target_logs: targetLogs,
+          recent_other_logs: otherLogs,
           state_survey: surveyData,
           training_timestamp: new Date().toISOString(),
           target_part: surveyBodyPart.name
@@ -164,7 +145,7 @@ const App = () => {
               const val = planSource[key];
               if (typeof val === 'object' && val.表格) {
                   const exId = `ai_${index}_${Date.now()}`;
-                  aiExercises.push({ id: exId, name: key.replace(/主项[:：]/g, '').trim(), bodyPartId: surveyBodyPart.id as any });
+                  aiExercises.push({ id: exId, name: key.replace(/主项[:：]/g, '').trim(), bodyPartId: surveyBodyPart.id });
                   initialLogs[exId] = val.表格.map((r: any, i: number) => ({
                       id: `${exId}_${i}`,
                       weight: parseFloat(String(r.重量)) || 0,
@@ -200,8 +181,7 @@ const App = () => {
     }
   };
 
-  const handleFinishWorkout = async (fatigueScore: number) => {
-    setShowFatigueModal(false);
+  const handleFinishWorkout = async (fatigueScore: number, periodName: string) => {
     setIsFinishing(true);
     try {
       const records = [];
@@ -213,21 +193,45 @@ const App = () => {
         const valid = (entryLogs as SetLog[]).filter(l => l.weight > 0 || l.reps > 0);
         if (valid.length > 0) {
             records.push({ 
-              body_part: selectedBodyPart?.id, 
+              body_part: selectedBodyPart?.name, 
               exercise: ex.name, 
-              sets: valid.map((l, i) => ({ set: i+1, reps: l.reps, weight_kg: l.weight, rpe: l.rpe, note: l.note })), 
+              sets: valid.map((l, i) => ({ 
+                set: i + 1, 
+                reps: l.reps, 
+                weight_kg: l.weight, 
+                rpe: l.rpe, 
+                note: l.note 
+              })), 
               date: dateStr 
             });
         }
       }
-      if (records.length > 0) await supabase.from('workout_logs').insert(records);
+      
+      if (records.length > 0) {
+        const { error } = await supabase.from('workout_logs').insert(records);
+        if (error) throw error;
+      }
+      
+      if (selectedBodyPart) {
+        setBodyPartPeriods(prev => ({
+          ...prev,
+          [selectedBodyPart.id]: periodName
+        }));
+      }
+
+      setShowFatigueModal(false);
       setView('SUMMARY');
-    } catch (e) { alert("保存失败"); } finally { setIsFinishing(false); }
+    } catch (e: any) { 
+      console.error("Save error:", e);
+      alert("保存失败: " + (e.message || "同步异常")); 
+    } finally { 
+      setIsFinishing(false); 
+    }
   };
 
-  const addNewExercise = async (ex: { name: string }) => {
+  const addNewExercise = async (ex: { name: string, category: string }) => {
     const id = `manual_${Date.now()}`;
-    setCurrentExercises(prev => [...prev, { id, name: ex.name, bodyPartId: selectedBodyPart?.id as any }]);
+    setCurrentExercises(prev => [...prev, { id, name: ex.name, bodyPartId: selectedBodyPart?.id! }]);
     setSessionLogs(prev => ({ ...prev, [id]: [{ id: `${id}_0`, weight: 0, reps: 0 }] }));
     setShowAddModal(false);
 
@@ -236,13 +240,13 @@ const App = () => {
         .from('exercise_library')
         .select('exercise_name')
         .eq('exercise_name', ex.name)
-        .eq('body_part', selectedBodyPart?.name)
+        .eq('body_part', ex.category)
         .maybeSingle();
       
       if (!exists) {
         await supabase.from('exercise_library').insert({
           exercise_name: ex.name,
-          body_part: selectedBodyPart?.name
+          body_part: ex.category
         });
       }
     } catch (e) {
@@ -253,7 +257,11 @@ const App = () => {
   return (
     <div className="h-screen w-full bg-[#FDFDFF] relative overflow-hidden text-slate-800 selection:bg-blue-100">
       <AnimatePresence mode="wait">
-        {view === 'HOME' && <motion.div key="home" className="h-full" exit={{ opacity: 0, scale: 0.95 }}><HomeView onSelect={(p: BodyPart) => { setSurveyBodyPart(p); setShowSurvey(true); }} /></motion.div>}
+        {view === 'HOME' && (
+          <motion.div key="home" className="h-full" exit={{ opacity: 0, scale: 0.95 }}>
+            <HomeView onSelect={(p: BodyPart) => { setSurveyBodyPart(p); setShowSurvey(true); }} periods={bodyPartPeriods} />
+          </motion.div>
+        )}
         {view === 'EXERCISES' && selectedBodyPart && (
           <motion.div key="exercises" className="h-full" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
             <ExerciseListView bodyPart={selectedBodyPart} exercises={currentExercises} onSelect={(ex: Exercise) => { setSelectedExercise(ex); setView('SESSION'); }} onBack={() => setView('HOME')} onFinishWorkout={() => setShowFatigueModal(true)} completedIds={completedExercises} planDetails={aiPlanDetails || undefined} onShowDetails={() => setShowPlanDetails(true)} onAdd={() => setShowAddModal(true)} isFinishing={isFinishing} onDelete={(id: string) => setCurrentExercises(prev => prev.filter(e => e.id !== id))} />
@@ -280,8 +288,8 @@ const App = () => {
         {isGenerating && <LoadingLogger logs={loadingLogs} progress={genProgress} isError={genError} onRetry={() => { setGenError(false); setIsGenerating(false); }} />}
         {showSurvey && surveyBodyPart && !isGenerating && <SurveyModal onClose={() => setShowSurvey(false)} onGenerate={handleGeneratePlan} loading={isGenerating} />}
         {showPlanDetails && aiPlanDetails && <PlanDetailsModal details={aiPlanDetails} onClose={() => setShowPlanDetails(false)} />}
-        {showFatigueModal && <FatigueModal onConfirm={handleFinishWorkout} loading={isFinishing} />}
-        {showAddModal && <AddExerciseModal bodyPart={selectedBodyPart!} onClose={() => setShowAddModal(false)} onSelect={addNewExercise} />}
+        {showFatigueModal && <FatigueModal onConfirm={handleFinishWorkout} loading={isFinishing} onClose={() => setShowFatigueModal(false)} />}
+        {showAddModal && <AddExerciseModal onClose={() => setShowAddModal(false)} onSelect={addNewExercise} />}
         {pickerState?.isOpen && <PickerManager state={pickerState} onClose={() => setPickerState(null)} onUpdate={(v: any) => {
             const { type, setId } = pickerState;
             setLogs(l => l.map(x => x.id === setId ? { ...x, [type]: v } : x));
@@ -300,7 +308,7 @@ const PickerManager = ({ state, onClose, onUpdate }: any) => {
   return (
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-6">
       <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-md" onClick={onClose} />
-      <motion.div initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="bg-white w-full max-w-sm rounded-[3rem] p-10 relative z-10 shadow-2xl border border-white/20">
+      <motion.div initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="bg-white w-full max-sm rounded-[3rem] p-10 relative z-10 shadow-2xl border border-white/20">
         <div className="flex justify-between items-center mb-8">
             <h3 className="text-xl font-black tracking-tight">{state.type === 'weight' ? '重量 KG' : state.type === 'reps' ? '次数 REPS' : '详细备注'}</h3>
             <button onClick={onClose} className="p-2 bg-slate-100 rounded-full active:scale-90 transition-all"><X size={20}/></button>
@@ -365,9 +373,9 @@ const PickerManager = ({ state, onClose, onUpdate }: any) => {
 };
 
 // --- Home View ---
-const HomeView = ({ onSelect }: any) => (
-  <div className="flex flex-col h-full overflow-hidden p-10 justify-center gap-14">
-    <div className="text-center">
+const HomeView = ({ onSelect, periods }: any) => (
+  <div className="flex flex-col h-full overflow-hidden p-8 justify-center gap-10">
+    <div className="text-center mb-2">
       <motion.h3 
         initial={{ opacity: 0, y: 10 }} 
         animate={{ opacity: 1, y: 0 }}
@@ -376,33 +384,55 @@ const HomeView = ({ onSelect }: any) => (
         今天练哪
       </motion.h3>
     </div>
-    <div className="grid grid-cols-2 gap-7 max-w-sm mx-auto w-full">
-      {BODY_PARTS.map((part, i) => (
-        <motion.button 
-          key={part.id} 
-          onClick={() => onSelect(part)} 
-          initial={{ opacity: 0, scale: 0.9 }} 
-          animate={{ opacity: 1, scale: 1 }} 
-          transition={{ delay: i * 0.08, type: 'spring', damping: 15 }} 
-          className={`aspect-square rounded-[3rem] ${part.color} bg-opacity-20 flex flex-col items-center justify-center gap-4 border-[6px] border-white shadow-2xl shadow-slate-200/40 active:scale-95 active:shadow-sm transition-all`}
-        >
-          <span className="text-3xl font-black tracking-tight">{part.name}</span>
-        </motion.button>
-      ))}
+    <div className="grid grid-cols-1 gap-5 max-w-sm mx-auto w-full overflow-y-auto no-scrollbar py-4">
+      {BODY_PARTS.map((part, i) => {
+        const period = periods[part.id];
+        const displayName = period ? `${part.name}（${period}期）` : part.name;
+
+        return (
+          <motion.button 
+            key={part.id} 
+            onClick={() => onSelect(part)} 
+            initial={{ opacity: 0, x: -30 }} 
+            animate={{ opacity: 1, x: 0 }} 
+            transition={{ delay: i * 0.1, type: 'spring', damping: 20 }} 
+            className={`w-full py-10 rounded-[2.5rem] ${part.color} bg-opacity-20 flex items-center justify-center border-[6px] border-white shadow-xl shadow-slate-200/40 active:scale-[0.98] transition-all`}
+          >
+            <span className="text-3xl font-black tracking-tight">{displayName}</span>
+          </motion.button>
+        );
+      })}
     </div>
   </div>
 );
 
 // --- Survey Modal ---
 const SurveyModal = ({ onClose, onGenerate, loading }: any) => {
-  const [formData, setFormData] = useState({ sleep: '好', doms: '无感', domsPart: '' });
+  const [formData, setFormData] = useState({ sleep: '好', doms: '无感', domsPart: '', period: '基础' });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
       <div className="absolute inset-0 bg-slate-900/10 backdrop-blur-lg" onClick={loading ? undefined : onClose} />
-      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-white w-full max-sm rounded-[3rem] overflow-hidden shadow-2xl border border-white/20">
-        <div className="p-10 pb-4 flex justify-between items-center"><h3 className="text-xl font-black text-slate-800 tracking-tight">状态检查</h3><button onClick={onClose} className="p-2 bg-slate-50 rounded-full"><X size={18}/></button></div>
-        <div className="px-10 pb-10 pt-4 space-y-8">
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-white w-full max-sm rounded-[3rem] overflow-hidden shadow-2xl border border-white/20 flex flex-col max-h-[85vh]">
+        <div className="p-10 pb-4 flex justify-between items-center shrink-0">
+          <h3 className="text-xl font-black text-slate-800 tracking-tight">状态检查</h3>
+          <button onClick={onClose} className="p-2 bg-slate-50 rounded-full"><X size={18}/></button>
+        </div>
+        <div className="px-10 pb-10 pt-4 space-y-8 overflow-y-auto no-scrollbar flex-1">
+          <div className="space-y-4">
+            <label className="text-[11px] font-black text-slate-300 uppercase tracking-[0.2em] ml-1">训练周期</label>
+            <div className="grid grid-cols-2 gap-3">
+              {['基础', '突破', '维持', '减负'].map(l => (
+                <button 
+                  key={l} 
+                  onClick={() => setFormData(p => ({ ...p, period: l }))} 
+                  className={`py-4 rounded-2xl border-2 font-black text-sm transition-all ${formData.period === l ? 'bg-slate-800 text-white border-slate-800 shadow-xl' : 'bg-white text-slate-300 border-slate-50 hover:border-slate-100'}`}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="space-y-4">
             <label className="text-[11px] font-black text-slate-300 uppercase tracking-[0.2em] ml-1">昨晚睡眠</label>
             <div className="flex gap-3">
@@ -442,7 +472,7 @@ const SurveyModal = ({ onClose, onGenerate, loading }: any) => {
           <button 
             onClick={() => onGenerate(formData)} 
             disabled={loading || ((formData.doms === '轻微' || formData.doms === '明显') && !formData.domsPart)} 
-            className="w-full mt-6 py-5 bg-blue-600 text-white font-black rounded-[2rem] shadow-2xl shadow-blue-200 active:scale-95 disabled:opacity-50 transition-all text-sm tracking-widest"
+            className="w-full mt-6 py-5 bg-blue-600 text-white font-black rounded-[2rem] shadow-2xl shadow-blue-200 active:scale-95 disabled:opacity-50 transition-all text-sm tracking-widest shrink-0"
           >
             {loading ? "正在同步历史数据..." : "获取训练计划"}
           </button>
@@ -457,14 +487,41 @@ const PlanDetailsModal = ({ details, onClose }: any) => (
   <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
     <div className="absolute inset-0 bg-slate-900/10 backdrop-blur-lg" onClick={onClose} />
     <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-white w-full max-md rounded-[3rem] overflow-hidden shadow-2xl flex flex-col max-h-[75vh]">
-      <div className="bg-slate-900 p-8 text-white shrink-0 flex justify-between items-center">
+      <div className="bg-slate-900 p-8 text-white shrink-0 flex justify-between items-center border-b border-white/5">
         <div><h3 className="text-xl font-black tracking-tight">AI 智能教练透视</h3><p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] mt-1">Intelligence Insight</p></div>
         <button onClick={onClose} className="p-3 bg-white/10 rounded-full hover:bg-white/20 transition-colors"><X size={20} /></button>
       </div>
       <div className="p-8 overflow-y-auto space-y-8 bg-slate-50/50 flex-1 no-scrollbar">
-        <section className="space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">周期诊断</h4><p className="text-sm font-bold leading-relaxed bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm text-slate-700">{details.summary}</p></section>
-        <section className="space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">动态调整理由</h4><p className="text-sm font-bold leading-relaxed bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm text-slate-700">{details.adjustments}</p></section>
-        {details.feedbackRequired.length > 0 && <section className="space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">今日红线</h4><div className="space-y-3">{details.feedbackRequired.map((t: any, i: number) => <div key={i} className="p-5 bg-white rounded-2xl border border-slate-100 text-xs font-black text-slate-500 flex gap-4 items-center shadow-sm"><div className="w-2 h-2 rounded-full bg-blue-500 shadow-lg shadow-blue-100" />{t}</div>)}</div></section>}
+        <section className="space-y-4">
+          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">周期诊断</h4>
+          <p className="text-sm font-bold leading-relaxed bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm text-slate-700">{details.summary}</p>
+        </section>
+        
+        <section className="space-y-4">
+          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">动态调整理由</h4>
+          <p className="text-sm font-bold leading-relaxed bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm text-slate-700">{details.adjustments}</p>
+        </section>
+        
+        {details.feedbackRequired.length > 0 && (
+          <section className="space-y-4">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">今日红线</h4>
+            <div className="space-y-3">
+              {details.feedbackRequired.map((t: any, i: number) => (
+                <div key={i} className="p-5 bg-white rounded-2xl border border-slate-100 text-xs font-black text-slate-500 flex gap-4 items-center shadow-sm">
+                  <div className="w-2 h-2 rounded-full bg-blue-500 shadow-lg shadow-blue-100" />
+                  {t}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section className="space-y-4">
+          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">AI 原始输出记录</h4>
+          <div className="bg-slate-900 p-6 rounded-[2rem] text-[11px] font-mono text-slate-400 overflow-x-auto whitespace-pre-wrap leading-relaxed shadow-inner border border-white/5">
+            {details.rawContent}
+          </div>
+        </section>
       </div>
     </motion.div>
   </div>
@@ -491,7 +548,7 @@ const ExerciseListView = ({ bodyPart, exercises, onSelect, onBack, onFinishWorko
             initial={{ y: 20, opacity: 0 }} 
             animate={{ y: 0, opacity: 1 }} 
             transition={{ delay: i * 0.05 }} 
-            className="relative"
+            className="relative group"
         >
           <button 
             onClick={() => onSelect(ex)} 
@@ -504,10 +561,9 @@ const ExerciseListView = ({ bodyPart, exercises, onSelect, onBack, onFinishWorko
             <ChevronRight size={20} className="text-slate-300" />
           </button>
           
-          {/* Subtle delete button for functionality, positioned absolutely */}
           <button 
             onClick={(e) => { e.stopPropagation(); onDelete(ex.id); }} 
-            className="absolute -right-2 -top-2 p-1.5 bg-white border border-slate-100 rounded-full text-slate-100 hover:text-rose-500 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute -right-2 -top-2 p-1.5 bg-white border border-slate-100 rounded-full text-slate-300 hover:text-rose-500 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <X size={12} />
           </button>
@@ -535,18 +591,22 @@ const ExerciseListView = ({ bodyPart, exercises, onSelect, onBack, onFinishWorko
 );
 
 // --- Add Exercise Modal ---
-const AddExerciseModal = ({ bodyPart, onClose, onSelect }: { bodyPart: BodyPart, onClose: () => void, onSelect: (ex: { name: string }) => void }) => {
+const AddExerciseModal = ({ onClose, onSelect }: { onClose: () => void, onSelect: (ex: { name: string, category: string }) => void }) => {
   const [customName, setCustomName] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('胸');
   const [library, setLibrary] = useState<{name: string}[]>([]);
   const [loadingLib, setLoadingLib] = useState(true);
 
+  const categories = ['胸', '背', '腿', '肩', '核心'];
+
   useEffect(() => {
-    const fetchLib = async (bodyPartName: string) => {
+    const fetchLib = async () => {
+      setLoadingLib(true);
       try {
         const { data } = await supabase
           .from('exercise_library')
           .select('exercise_name')
-          .eq('body_part', bodyPartName)
+          .eq('body_part', selectedCategory)
           .order('exercise_name');
         
         if (data) {
@@ -558,14 +618,8 @@ const AddExerciseModal = ({ bodyPart, onClose, onSelect }: { bodyPart: BodyPart,
         setLoadingLib(false);
       }
     };
-    fetchLib(bodyPart.name);
-  }, [bodyPart.name]);
-
-  const defaultEx = EXERCISES[bodyPart.id] || [];
-  const combinedLibrary = Array.from(new Set([
-    ...defaultEx.map(e => e.name),
-    ...library.map(e => e.name)
-  ]));
+    fetchLib();
+  }, [selectedCategory]);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-6">
@@ -576,24 +630,37 @@ const AddExerciseModal = ({ bodyPart, onClose, onSelect }: { bodyPart: BodyPart,
           <button onClick={onClose} className="p-2 bg-slate-50 rounded-full active:scale-90 transition-all"><X size={18}/></button>
         </div>
         
-        <div className="flex-1 overflow-y-auto p-8 space-y-8 no-scrollbar">
+        {/* Category Selection */}
+        <div className="flex gap-2 overflow-x-auto no-scrollbar p-8 pb-2 shrink-0">
+          {categories.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              className={`px-6 py-3 rounded-2xl font-black text-sm transition-all flex-shrink-0 ${selectedCategory === cat ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-50 text-slate-300'}`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-8 pt-4 space-y-8 no-scrollbar">
           <div className="space-y-4">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">我的动作库</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{selectedCategory}部动作库</p>
             {loadingLib ? (
               <div className="flex justify-center p-10"><Loader2 className="animate-spin text-slate-200" /></div>
             ) : (
               <div className="grid grid-cols-1 gap-2">
-                {combinedLibrary.length > 0 ? combinedLibrary.map(name => (
+                {library.length > 0 ? library.map(name => (
                   <button 
-                    key={name} 
-                    onClick={() => onSelect({ name })}
+                    key={name.name} 
+                    onClick={() => onSelect({ name: name.name, category: selectedCategory })}
                     className="w-full p-5 rounded-2xl bg-slate-50 text-left font-black text-slate-700 hover:bg-slate-100 transition-colors flex justify-between items-center group active:scale-[0.98]"
                   >
-                    <span className="truncate">{name}</span>
+                    <span className="truncate">{name.name}</span>
                     <Plus size={16} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
                   </button>
                 )) : (
-                  <p className="text-xs text-slate-300 text-center py-4 font-bold">库中暂无本部位动作</p>
+                  <p className="text-xs text-slate-300 text-center py-4 font-bold">库中暂无该部位动作</p>
                 )}
               </div>
             )}
@@ -609,7 +676,7 @@ const AddExerciseModal = ({ bodyPart, onClose, onSelect }: { bodyPart: BodyPart,
                 className="flex-1 p-5 bg-slate-50 rounded-2xl font-black text-sm outline-none border-none focus:ring-2 focus:ring-blue-100 transition-all"
               />
               <button 
-                onClick={() => customName && onSelect({ name: customName })}
+                onClick={() => customName && onSelect({ name: customName, category: selectedCategory })}
                 disabled={!customName}
                 className="px-6 bg-slate-900 text-white rounded-2xl font-black active:scale-95 disabled:opacity-30 transition-all flex items-center justify-center shadow-lg shadow-slate-200"
               >
@@ -638,19 +705,55 @@ const SetItem = ({ item, onDelete, onOpenPicker }: any) => (
 );
 
 // --- Fatigue Modal ---
-const FatigueModal = ({ onConfirm, loading }: any) => {
+const FatigueModal = ({ onConfirm, loading, onClose }: any) => {
   const [score, setScore] = useState<number | null>(null);
+  const [period, setPeriod] = useState<string | null>(null);
+
+  const scores = [6, 7, 8, 9, 10];
+  const periods = ['基础', '推进', '维持', '减负'];
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-8">
-      <div className="absolute inset-0 bg-slate-900/10 backdrop-blur-lg" />
-      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-white w-full max-w-xs rounded-[3rem] p-12 text-center shadow-2xl">
+      <div className="absolute inset-0 bg-slate-900/10 backdrop-blur-lg" onClick={loading ? undefined : onClose} />
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-white w-full max-sm rounded-[3rem] p-10 text-center shadow-2xl overflow-hidden">
         <h3 className="text-2xl font-black mb-2 tracking-tight">今日身体状态</h3>
-        <p className="text-[10px] text-slate-400 font-black mb-10 uppercase tracking-[0.25em]">Self-Perception Rate</p>
-        <div className="grid grid-cols-3 gap-4 mb-10">
-          {[6, 7, 8, 9, 10].map(v => <button key={v} onClick={() => setScore(v)} className={`py-5 rounded-2xl font-black text-2xl border-2 transition-all ${score === v ? 'bg-slate-900 text-white border-slate-900 shadow-xl scale-105' : 'bg-white border-slate-50 text-slate-200 hover:border-slate-100'}`}>{v}</button>)}
+        <p className="text-[10px] text-slate-400 font-black mb-8 uppercase tracking-[0.25em]">Self-Perception Rate</p>
+        
+        {/* Score Selection */}
+        <div className="flex justify-between gap-2 mb-10">
+          {scores.map(v => (
+            <button 
+              key={v} 
+              onClick={() => setScore(v)} 
+              className={`flex-1 py-4 rounded-2xl font-black text-xl border-2 transition-all ${score === v ? 'bg-slate-900 text-white border-slate-900 shadow-xl scale-110 z-10' : 'bg-white border-slate-50 text-slate-200 hover:border-slate-100'}`}
+            >
+              {v}
+            </button>
+          ))}
         </div>
-        <button onClick={() => score && onConfirm(score)} disabled={!score || loading} className="w-full py-5 bg-blue-600 text-white font-black rounded-[2rem] shadow-2xl shadow-blue-200 active:scale-95 transition-all text-sm tracking-widest">
-            {loading ? <Loader2 className="animate-spin mx-auto"/> : '确认并同步'}
+
+        <h3 className="text-2xl font-black mb-2 tracking-tight">训练周期</h3>
+        <p className="text-[10px] text-slate-400 font-black mb-8 uppercase tracking-[0.25em]">Training Period Selection</p>
+
+        {/* Period Selection */}
+        <div className="grid grid-cols-2 gap-3 mb-10">
+          {periods.map(p => (
+            <button 
+              key={p} 
+              onClick={() => setPeriod(p)} 
+              className={`py-4 rounded-2xl font-black text-sm border-2 transition-all ${period === p ? 'bg-slate-900 text-white border-slate-900 shadow-xl scale-105 z-10' : 'bg-white border-slate-50 text-slate-300 hover:border-slate-100'}`}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+
+        <button 
+          onClick={() => score !== null && period !== null && onConfirm(score, period)} 
+          disabled={score === null || period === null || loading} 
+          className="w-full py-5 bg-blue-600 text-white font-black rounded-[2rem] shadow-2xl shadow-blue-200 active:scale-[0.98] disabled:opacity-30 disabled:shadow-none transition-all text-sm tracking-widest uppercase flex items-center justify-center gap-2"
+        >
+            {loading ? <Loader2 className="animate-spin" /> : '确认并同步'}
         </button>
       </motion.div>
     </div>

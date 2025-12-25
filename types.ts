@@ -1,5 +1,6 @@
 
-export type BodyPartId = 'chest' | 'back' | 'legs' | 'shoulders' | 'core' | 'custom';
+// Add workout specific IDs to BodyPartId
+export type BodyPartId = 'upper1' | 'lower1' | 'upper2' | 'lower2' | 'chest' | 'back' | 'legs' | 'shoulders' | 'core' | 'custom';
 
 export interface BodyPart {
   id: BodyPartId;
