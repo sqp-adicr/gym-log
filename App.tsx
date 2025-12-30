@@ -87,6 +87,13 @@ const App = () => {
     setGenProgress(5);
     addLog("正在启动云端智能...");
 
+    // 检查 API KEY 是否配置
+    if (!process.env.API_KEY || process.env.API_KEY === 'undefined') {
+      addLog("[严重错误] 未检测到 API_KEY。请在 Vercel 环境变量中配置。");
+      setGenError(true);
+      return;
+    }
+
     try {
       setGenProgress(15);
       addLog(`[准备] 正在读取您过去 4 周的全部训练记录...`);
@@ -114,21 +121,45 @@ const App = () => {
       setGenProgress(65);
       
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: JSON.stringify({
-          recent_target_logs: targetLogs,
-          recent_other_logs: otherLogs,
-          state_survey: surveyData,
-          training_timestamp: new Date().toISOString(),
-          target_part: surveyBodyPart.name
-        }),
-        config: { systemInstruction: SYSTEM_PROMPT, temperature: 0.2 }
-      });
+      
+      // 增加重试逻辑以应对移动端 Load failed
+      let retryCount = 0;
+      let response;
+      const maxRetries = 1;
+
+      const callGemini = async () => {
+        return await ai.models.generateContent({
+          model: 'gemini-3-pro-preview',
+          contents: [{ 
+            parts: [{ 
+              text: JSON.stringify({
+                recent_target_logs: targetLogs,
+                recent_other_logs: otherLogs,
+                state_survey: surveyData,
+                training_timestamp: new Date().toISOString(),
+                target_part: surveyBodyPart.name
+              }) 
+            }] 
+          }],
+          config: { systemInstruction: SYSTEM_PROMPT, temperature: 0.2 }
+        });
+      };
+
+      try {
+        response = await callGemini();
+      } catch (e: any) {
+        if (e.message?.includes('Load failed') && retryCount < maxRetries) {
+          retryCount++;
+          addLog(`[重试] 网络请求失败，正在尝试第二次连接...`);
+          response = await callGemini();
+        } else {
+          throw e;
+        }
+      }
 
       setGenProgress(90);
       const content = response.text;
-      if (!content) throw new Error("AI 响应异常。");
+      if (!content) throw new Error("AI 响应内容为空。");
 
       let parsedRoot: any;
       const match = content.match(/\{[\s\S]*\}/);
@@ -172,11 +203,18 @@ const App = () => {
           setView('EXERCISES');
           setIsGenerating(false); 
       } else {
-          throw new Error("解析数据格式失败。");
+          throw new Error("解析 AI 返回的 JSON 数据失败。");
       }
     } catch (error: any) {
         console.error("Generate error:", error);
-        addLog(`[错误] ${error.message || '网络或数据同步异常'}`);
+        let errorMsg = error.message || '未知错误';
+        
+        // 针对 "Load failed" 提供更具针对性的诊断信息
+        if (errorMsg.includes('Load failed')) {
+          errorMsg = "网络连接受阻 (Load failed)。请检查是否使用了代理、VPN 或当前网络是否屏蔽了 Google API 域名。";
+        }
+        
+        addLog(`[错误] ${errorMsg}`);
         setGenError(true);
     }
   };
